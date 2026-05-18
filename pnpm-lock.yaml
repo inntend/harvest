@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@inntend/convert':
+        specifier: file:../convert
+        version: file:../convert
       croner:
         specifier: ^9.1.0
         version: 9.1.0
@@ -411,6 +414,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@inntend/convert@file:../convert':
+    resolution: {directory: ../convert, type: directory}
+    engines: {node: '>=20', pnpm: '>=9'}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -727,6 +734,9 @@ packages:
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
+
+  big.js@7.0.1:
+    resolution: {integrity: sha512-iFgV784tD8kq4ccF1xtNMZnXeZzVuXWWM+ERFzKQjv+A5G9HC8CY3DuV45vgzFFcW+u2tIvmF95+AzWgs6BjCg==}
 
   bundle-require@5.1.0:
     resolution: {integrity: sha512-3WrrOuZiyaaZPWiEt4G3+IffISVC9HYlWueJEBWED4ZH4aIAC2PnkdnuRrR94M+w6yGWn4AglWtJtBI8YqvgoA==}
@@ -1374,6 +1384,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.0':
     optional: true
 
+  '@inntend/convert@file:../convert':
+    dependencies:
+      big.js: 7.0.1
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -1587,6 +1601,8 @@ snapshots:
   any-promise@1.3.0: {}
 
   assertion-error@2.0.1: {}
+
+  big.js@7.0.1: {}
 
   bundle-require@5.1.0(esbuild@0.27.7):
     dependencies:

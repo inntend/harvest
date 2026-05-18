@@ -1,13 +1,17 @@
 import { Cron } from 'croner';
 import type { z } from 'zod';
-import type { Adaptor, AnyAdaptor, DataEvent } from './types.js';
+import type { Component } from './definition';
+import { Schema } from './schema';
+import { Transform } from './transform';
+import type { Adaptor, AnyAdaptor, DataEvent } from './types';
 
 type Shape = Record<string, z.ZodTypeAny>;
 type DataHandler = (event: DataEvent) => void | Promise<void>;
 
 type Entry = {
   adaptor: AnyAdaptor;
-  config: any;
+  config: any; // validated at registration via adaptor.config.parse()
+  transform: Transform;
   job?: Cron;
 };
 
@@ -15,12 +19,15 @@ export class AdaptorScheduler {
   readonly #registry = new Map<string, Entry>();
   readonly #handlers: DataHandler[] = [];
 
-  register<C extends Shape, R extends Shape, W extends Shape>(
-    adaptor: Adaptor<C, R, W>,
+  register<C extends Shape>(
+    adaptor: Adaptor<C>,
     config: z.infer<z.ZodObject<C>>,
+    components: Component[],
   ): this {
     const parsed = adaptor.config.parse(config);
-    this.#registry.set(adaptor.id, { adaptor, config: parsed });
+    const transform = new Transform(adaptor.def);
+    transform.setup(components);
+    this.#registry.set(adaptor.id, { adaptor, config: parsed, transform });
     return this;
   }
 
@@ -47,10 +54,11 @@ export class AdaptorScheduler {
     const entry = this.#registry.get(adaptorId);
     if (!entry) throw new Error(`Unknown adaptor: ${adaptorId}`);
 
-    const { adaptor, config } = entry;
+    const { adaptor, config, transform } = entry;
     try {
       const raw = await adaptor.fetch(config);
-      const data = adaptor.read.partial().parse(raw);
+      const timestamp = new Date().toISOString();
+      const data = await transform.measurements({ [timestamp]: raw });
       const event: DataEvent = { adaptorId, timestamp: new Date(), data };
       await Promise.all(this.#handlers.map((h) => h(event)));
     } catch (err) {
@@ -58,13 +66,18 @@ export class AdaptorScheduler {
     }
   }
 
-  async write(adaptorId: string, values: unknown): Promise<void> {
+  async write(
+    adaptorId: string,
+    values: Record<string, number>,
+  ): Promise<void> {
     const entry = this.#registry.get(adaptorId);
     if (!entry) throw new Error(`Unknown adaptor: ${adaptorId}`);
     if (!entry.adaptor.send)
       throw new Error(`Adaptor "${adaptorId}" does not support write`);
 
-    const parsed = entry.adaptor.write.partial().parse(values);
-    await entry.adaptor.send(entry.config, parsed);
+    const schema = new Schema(entry.adaptor.def);
+    schema.setup();
+    const parsed = schema.write.partial().parse(values);
+    await entry.adaptor.send(entry.config, parsed as Record<string, number>);
   }
 }

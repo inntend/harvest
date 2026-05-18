@@ -19,6 +19,7 @@
     "example": "tsx examples/basic.ts"
   },
   "dependencies": {
+    "@inntend/convert": "file:../convert",
     "croner": "^9.1.0"
   },
   "peerDependencies": {

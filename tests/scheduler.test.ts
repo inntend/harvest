@@ -1,24 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AdaptorScheduler } from '../src/scheduler.js';
-import type { Adaptor } from '../src/types.js';
+import { AdaptorScheduler } from '../src/scheduler';
+import type { Adaptor } from '../src/types';
 
 const config = z.object({
   host: z.string(),
   port: z.number().int().min(1).max(65535),
 });
-const read = z.object({ value: z.number().min(0).max(100) });
-const write = z.object({ target: z.number().min(0).max(100) });
+
+const def = {
+  properties: { max: { unit: '%', value: 100 } },
+  read: { value: { unit: '%', min: 0, max: 'max' } },
+  write: { target: { unit: '%', min: 0, max: 100 } },
+};
+
+const components = [
+  {
+    identifier: 'dev-1',
+    measurements: [{ reference: 'value', unit: '%', identifier: 'series-1' }],
+  },
+];
 
 const makeAdaptor = (
-  fetchFn: () => Promise<{ value?: number }> = async () => ({ value: 42 }),
-): Adaptor<typeof config.shape, typeof read.shape, typeof write.shape> => ({
+  fetchFn: () => Promise<Record<string, number>> = async () => ({ value: 42 }),
+): Adaptor<typeof config.shape> => ({
   id: 'test',
   name: 'Test Adaptor',
   schedule: '* * * * *',
   config,
-  read,
-  write,
+  def,
   fetch: fetchFn,
   send: vi.fn(),
 });
@@ -26,17 +36,20 @@ const makeAdaptor = (
 describe('AdaptorScheduler', () => {
   it('register throws on invalid config', () => {
     const scheduler = new AdaptorScheduler();
-    // port out of range
     expect(() =>
-      scheduler.register(makeAdaptor(), { host: 'localhost', port: 99999 }),
+      scheduler.register(
+        makeAdaptor(),
+        { host: 'localhost', port: 99999 },
+        components,
+      ),
     ).toThrow();
   });
 
-  it('run fetches, validates, and emits a DataEvent', async () => {
+  it('run fetches, validates, and emits a DataEvent with SeriesEntry[]', async () => {
     const handler = vi.fn();
     const scheduler = new AdaptorScheduler();
     scheduler
-      .register(makeAdaptor(), { host: 'localhost', port: 502 })
+      .register(makeAdaptor(), { host: 'localhost', port: 502 }, components)
       .onData(handler);
 
     await scheduler.run('test');
@@ -44,7 +57,8 @@ describe('AdaptorScheduler', () => {
     expect(handler).toHaveBeenCalledOnce();
     const event = handler.mock.calls[0][0];
     expect(event.adaptorId).toBe('test');
-    expect(event.data).toEqual({ value: 42 });
+    expect(event.data).toHaveLength(1);
+    expect(event.data[0]).toMatchObject({ identifier: 'series-1', value: 42 });
     expect(event.timestamp).toBeInstanceOf(Date);
   });
 
@@ -59,10 +73,8 @@ describe('AdaptorScheduler', () => {
         makeAdaptor(async () => {
           throw new Error('network down');
         }),
-        {
-          host: 'localhost',
-          port: 502,
-        },
+        { host: 'localhost', port: 502 },
+        components,
       )
       .onData(handler);
 
@@ -75,7 +87,7 @@ describe('AdaptorScheduler', () => {
   it('write validates values and calls send', async () => {
     const adaptor = makeAdaptor();
     const scheduler = new AdaptorScheduler();
-    scheduler.register(adaptor, { host: 'localhost', port: 502 });
+    scheduler.register(adaptor, { host: 'localhost', port: 502 }, components);
 
     await scheduler.write('test', { target: 75 });
 
@@ -88,7 +100,7 @@ describe('AdaptorScheduler', () => {
   it('write throws for adaptors without send', async () => {
     const adaptor = { ...makeAdaptor(), send: undefined };
     const scheduler = new AdaptorScheduler();
-    scheduler.register(adaptor, { host: 'localhost', port: 502 });
+    scheduler.register(adaptor, { host: 'localhost', port: 502 }, components);
 
     await expect(scheduler.write('test', { target: 50 })).rejects.toThrow(
       'does not support write',
