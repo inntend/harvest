@@ -1,0 +1,35 @@
+{
+  "name": "@inntend/harvest",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Plugin-based adaptor scheduler — pull and push data on a cron schedule",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "check": "biome check --write",
+    "check:ci": "biome ci",
+    "validate": "pnpm run check && pnpm run build && pnpm run test",
+    "example": "tsx examples/basic.ts"
+  },
+  "dependencies": {
+    "croner": "^9.1.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.6",
+    "zod": "^4.4.3"
+  }
+}
