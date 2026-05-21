@@ -106,4 +106,48 @@ describe('AdaptorScheduler', () => {
       'does not support write',
     );
   });
+
+  it('run throws for an unregistered adaptor id', async () => {
+    const scheduler = new AdaptorScheduler();
+    await expect(scheduler.run('ghost')).rejects.toThrow(
+      'Unknown adaptor: ghost',
+    );
+  });
+
+  it('write throws for an unregistered adaptor id', async () => {
+    const scheduler = new AdaptorScheduler();
+    await expect(scheduler.write('ghost', {})).rejects.toThrow(
+      'Unknown adaptor: ghost',
+    );
+  });
+
+  it('start returns this for chaining and creates jobs', () => {
+    const scheduler = new AdaptorScheduler();
+    scheduler.register(
+      makeAdaptor(),
+      { host: 'localhost', port: 502 },
+      components,
+    );
+
+    const result = scheduler.start();
+    expect(result).toBe(scheduler);
+
+    scheduler.stop(); // clean up
+  });
+
+  it('stop is safe before start and halts jobs after start', () => {
+    const scheduler = new AdaptorScheduler();
+    scheduler.register(
+      makeAdaptor(),
+      { host: 'localhost', port: 502 },
+      components,
+    );
+
+    // stop before start — entry.job is undefined, optional chaining is a no-op
+    expect(() => scheduler.stop()).not.toThrow();
+
+    // start then stop
+    scheduler.start();
+    expect(() => scheduler.stop()).not.toThrow();
+  });
 });

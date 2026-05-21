@@ -13,9 +13,10 @@
     "build": "tsup",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "check": "biome check --write",
     "check:ci": "biome ci",
-    "validate": "pnpm run check && pnpm run build && pnpm run test",
+    "validate": "pnpm run check && pnpm run build && pnpm run test:coverage",
     "example": "tsx examples/basic.ts"
   },
   "dependencies": {
@@ -27,6 +28,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
+    "@vitest/coverage-v8": "4.1.6",
+    "approve-builds": "^1.0.0",
+    "pnpm": "^11.1.3",
     "tsup": "^8.5.1",
     "tsx": "^4.22.1",
     "typescript": "~5.9.3",

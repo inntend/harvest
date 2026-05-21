@@ -1,4 +1,6 @@
 export { demoAdaptor } from './adaptors/demo';
+export { openMeteoAdaptor } from './adaptors/open-meteo';
+export { skyhintsAdaptor } from './adaptors/skyhints';
 export type {
   AdaptorDef,
   Bound,
