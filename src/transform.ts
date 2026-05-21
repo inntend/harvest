@@ -65,6 +65,7 @@ export class Transform {
       for (const m of this.#measurements[componentId]) {
         for (const timestamp in values) {
           const v = values[timestamp][m.reference];
+          if (v === undefined) continue;
           const converter =
             typeof v === 'number'
               ? new Convert().from(v, this.def.read[m.reference].unit as Unit)

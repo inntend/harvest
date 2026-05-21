@@ -57,9 +57,9 @@ export class AdaptorScheduler {
     const { adaptor, config, transform } = entry;
     try {
       const raw = await adaptor.fetch(config);
-      const timestamp = new Date().toISOString();
-      const data = await transform.measurements({ [timestamp]: raw });
-      const event: DataEvent = { adaptorId, timestamp: new Date(), data };
+      const now = new Date();
+      const data = await transform.measurements({ [now.toISOString()]: raw });
+      const event: DataEvent = { adaptorId, timestamp: now, data };
       await Promise.all(this.#handlers.map((h) => h(event)));
     } catch (err) {
       console.error(`[harvest] Adaptor "${adaptorId}" error:`, err);

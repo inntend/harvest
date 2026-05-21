@@ -223,10 +223,10 @@ describe('openMeteoAdaptor', () => {
       const result = await openMeteoAdaptor.fetch(cfg);
 
       expect(result.daily_sunrise).toBe(
-        Math.floor(new Date('2024-01-15T08:23').getTime() / 1000),
+        Math.floor(new Date('2024-01-15T08:23:00Z').getTime() / 1000),
       );
       expect(result.daily_sunset).toBe(
-        Math.floor(new Date('2024-01-15T16:47').getTime() / 1000),
+        Math.floor(new Date('2024-01-15T16:47:00Z').getTime() / 1000),
       );
     });
 
@@ -343,10 +343,10 @@ describe('openMeteoAdaptor', () => {
       const result = await openMeteoAdaptor.fetch(cfg);
 
       expect(result.d0_sunrise).toBe(
-        Math.floor(new Date('2024-01-15T08:23').getTime() / 1000),
+        Math.floor(new Date('2024-01-15T08:23:00Z').getTime() / 1000),
       );
       expect(result.d1_sunrise).toBe(
-        Math.floor(new Date('2024-01-16T08:23').getTime() / 1000),
+        Math.floor(new Date('2024-01-16T08:23:00Z').getTime() / 1000),
       );
     });
 

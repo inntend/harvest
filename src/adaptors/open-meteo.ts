@@ -370,6 +370,7 @@ async function fetchCurrent(
   const json = (await res.json()) as {
     current?: Record<string, number | null>;
     daily?: Record<string, Array<number | string | null>>;
+    utc_offset_seconds?: number;
   };
 
   const result: Record<string, number> = {};
@@ -382,7 +383,7 @@ async function fetchCurrent(
   }
 
   // Today's daily aggregates prefixed with "daily_"
-  parseDailyBlock(json.daily, (key, value) => {
+  parseDailyBlock(json.daily, json.utc_offset_seconds ?? 0, (key, value) => {
     result[`daily_${key}`] = value;
   });
 
@@ -411,14 +412,19 @@ async function fetchHistoricalDaily(
 
   const json = (await res.json()) as {
     daily?: Record<string, Array<number | string | null>>;
+    utc_offset_seconds?: number;
   };
 
   const result: Record<string, number> = {};
 
   // Each day in the range becomes a d{N}_ prefixed group
-  parseDailyBlock(json.daily, (key, value, dayIndex) => {
-    result[`d${dayIndex}_${key}`] = value;
-  });
+  parseDailyBlock(
+    json.daily,
+    json.utc_offset_seconds ?? 0,
+    (key, value, dayIndex) => {
+      result[`d${dayIndex}_${key}`] = value;
+    },
+  );
 
   return result;
 }
@@ -468,20 +474,31 @@ type DailyCallback = (key: string, value: number, dayIndex: number) => void;
 
 function parseDailyBlock(
   daily: Record<string, Array<number | string | null>> | undefined,
+  utcOffsetSeconds: number,
   emit: DailyCallback,
 ): void {
   if (!daily) return;
 
-  // Determine the number of days from the time array length
-  const dayCount = Array.isArray(daily.time) ? daily.time.length : 1;
+  // Use the time array length as the authoritative day count; fall back to
+  // each array's own length so no data is lost when time is absent.
+  const dayCount = Array.isArray(daily.time) ? daily.time.length : undefined;
 
   for (const [key, values] of Object.entries(daily)) {
     if (key === 'time') continue;
-    for (let i = 0; i < dayCount; i++) {
+    const count = dayCount ?? values.length;
+    for (let i = 0; i < count; i++) {
       const value = values[i];
       if (key === 'sunrise' || key === 'sunset') {
+        // API returns local-timezone strings without offset info (e.g. "2024-01-15T08:23").
+        // Append ":00Z" to form a valid UTC ISO string, then subtract utc_offset_seconds
+        // to recover the true UTC instant.
         if (typeof value === 'string') {
-          emit(key, Math.floor(new Date(value).getTime() / 1000), i);
+          const localAsUtcMs = new Date(value + ':00Z').getTime();
+          emit(
+            key,
+            Math.floor((localAsUtcMs - utcOffsetSeconds * 1000) / 1000),
+            i,
+          );
         }
       } else if (typeof value === 'number') {
         emit(key, value, i);
