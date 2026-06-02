@@ -13,7 +13,7 @@
     "npm": "=10.x",
     "node": "=24.x"
   },
-  "packageManager": "pnpm@11.3.0",
+  "packageManager": "pnpm@11.5.0",
   "scripts": {
     "build": "tsup",
     "dev": "tsx watch src/index.ts",
@@ -32,13 +32,13 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
-    "@vitest/coverage-v8": "4.1.7",
+    "@biomejs/biome": "^2.4.16",
+    "@vitest/coverage-v8": "^4.1.8",
     "approve-builds": "^1.0.0",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.3",
+    "tsx": "^4.22.4",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.8",
     "zod": "^4.4.3"
   }
 }
