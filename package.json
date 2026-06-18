@@ -4,6 +4,13 @@
   "type": "module",
   "description": "Plugin-based adaptor scheduler — pull and push data on a cron schedule",
   "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -13,32 +20,32 @@
     "npm": "=10.x",
     "node": "=24.x"
   },
-  "packageManager": "pnpm@11.5.0",
+  "packageManager": "pnpm@11.7.0",
   "scripts": {
     "build": "tsup",
+    "build:check": "tsc --noEmit",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "check": "biome check --write",
     "check:ci": "biome ci",
-    "validate": "pnpm run check && pnpm run build && pnpm run test:coverage",
+    "validate": "pnpm run check && pnpm run build:check && pnpm run test:coverage",
     "example": "tsx examples/basic.ts"
   },
   "dependencies": {
-    "@inntend/convert": "file:../convert",
+    "@inntend/convert": "0.0.3",
     "croner": "^10.0.1"
   },
   "peerDependencies": {
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@vitest/coverage-v8": "^4.1.8",
-    "approve-builds": "^1.0.0",
+    "@biomejs/biome": "^2.5.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
-    "typescript": "~5.9.3",
-    "vitest": "^4.1.8",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9",
     "zod": "^4.4.3"
   }
 }
