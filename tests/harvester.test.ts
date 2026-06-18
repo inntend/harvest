@@ -87,6 +87,64 @@ describe('Harvester', () => {
     });
   });
 
+  it('forwards data events to handlers registered via onData', async () => {
+    const onData = vi.fn();
+    const store = {
+      list: async () => [spec()],
+      writeSeries: vi.fn().mockResolvedValue(undefined),
+    };
+    const h = new Harvester({ store, retry: { retries: 0 } }).provide(
+      adaptor(),
+    );
+    expect(h.onData(onData)).toBe(h); // chainable
+
+    await h.start();
+    await h.run('c1');
+    h.stop();
+
+    expect(onData).toHaveBeenCalledOnce();
+    expect(onData.mock.calls[0][0]).toMatchObject({
+      connectorId: 'c1',
+      adaptorId: 'test',
+    });
+  });
+
+  it('defaults the retry policy when none is supplied', async () => {
+    const writeSeries = vi.fn().mockResolvedValue(undefined);
+    const store = { list: async () => [spec()], writeSeries };
+    const h = new Harvester({ store }).provide(adaptor()); // no retry option
+
+    await h.start();
+    await h.run('c1');
+    h.stop();
+
+    expect(writeSeries).toHaveBeenCalledOnce();
+  });
+
+  it('forwards fetch failures from the scheduler to onError handlers', async () => {
+    const onError = vi.fn();
+    const failing = adaptor(async () => {
+      throw new Error('network down');
+    });
+    const store = { list: async () => [spec()], writeSeries: vi.fn() };
+    const h = new Harvester({ store, retry: { retries: 0, baseDelayMs: 0 } })
+      .provide(failing)
+      .onData(() => {});
+    h.onError(onError);
+
+    await h.start();
+    await h.run('c1');
+    h.stop();
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0][0]).toMatchObject({
+      connectorId: 'c1',
+      adaptorId: 'test',
+      attempt: 1,
+      willRetry: false,
+    });
+  });
+
   it('reload re-reads configuration and applies enable toggles', async () => {
     let enabled = false;
     const store = {

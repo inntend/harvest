@@ -182,6 +182,28 @@ describe('AdaptorScheduler', () => {
     consoleError.mockRestore();
   });
 
+  it('runs the connector when its cron schedule ticks', async () => {
+    const onData = vi.fn();
+    const scheduler = new AdaptorScheduler().provide(makeAdaptor());
+    scheduler
+      .configure({
+        id: 'c1',
+        adaptorId: 'test',
+        schedule: '* * * * * *', // every second
+        config: { host: 'h', port: 1 },
+        components,
+      })
+      .onData(onData);
+
+    scheduler.start();
+    await vi.waitFor(() => expect(onData).toHaveBeenCalled(), {
+      timeout: 2000,
+    });
+    scheduler.stop();
+
+    expect(onData.mock.calls[0][0].connectorId).toBe('c1');
+  });
+
   it('write validates values and calls send', async () => {
     const adaptor = makeAdaptor();
     const scheduler = new AdaptorScheduler();

@@ -154,10 +154,12 @@ export class AdaptorScheduler {
   ): Promise<Record<string, number>> {
     const { retries, baseDelayMs } = this.#retry;
     const maxAttempts = retries + 1; // first attempt + `retries` additional
+    let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         return await entry.adaptor.fetch(entry.config);
       } catch (err) {
+        lastError = err;
         const willRetry = attempt < maxAttempts;
         await this.#emitError({
           connectorId,
@@ -166,12 +168,11 @@ export class AdaptorScheduler {
           attempt,
           willRetry,
         });
-        if (!willRetry) throw err;
-        await sleep(baseDelayMs * 2 ** (attempt - 1));
+        if (willRetry) await sleep(baseDelayMs * 2 ** (attempt - 1));
       }
     }
-    // Unreachable: the final attempt always returns or throws above.
-    throw new Error('unreachable');
+    // Every attempt failed — surface the most recent error.
+    throw lastError;
   }
 
   async #emitError(event: ErrorEvent): Promise<void> {

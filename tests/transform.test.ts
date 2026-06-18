@@ -113,4 +113,58 @@ describe('Transform', () => {
     ]);
     warn.mockRestore();
   });
+
+  test('a second setup() replaces the prior measurements and schemas', async () => {
+    const t = new Transform(definition);
+    t.setup([
+      {
+        identifier: 'A',
+        status: 'ready',
+        measurements: [{ reference: 'soc', unit: 'kWh', identifier: 'old' }],
+      },
+    ]);
+    // Reconfigure: the previous component 'A' must be cleared, not merged.
+    t.setup([
+      {
+        identifier: 'B',
+        status: 'ready',
+        measurements: [{ reference: 'soc', unit: 'kWh', identifier: 'new' }],
+      },
+    ]);
+
+    const result = await t.measurements({
+      'some-ts': { soc: new Convert().from(0.036, 'kWh') },
+    });
+
+    expect(result).toEqual([
+      { identifier: 'new', timestamp: 'some-ts', value: 0.036 },
+    ]);
+  });
+
+  test('skips a measurement whose reference is absent from the fetched values', async () => {
+    const t = new Transform(definition);
+    t.setup([
+      {
+        identifier: 'A',
+        status: 'ready',
+        measurements: [
+          { reference: 'soc', unit: 'kWh', identifier: '23' },
+          // `discharging` is requested but never present in the values below.
+          { reference: 'discharging', unit: 'kW', identifier: '26' },
+        ],
+      },
+    ]);
+
+    // The read fields are optional, so validation passes despite the gap; the
+    // missing reference is simply skipped rather than emitted as undefined.
+    const result = await t.measurements({
+      'some-ts': {
+        soc: new Convert().from(0.036, 'kWh'),
+      },
+    });
+
+    expect(result).toEqual([
+      { identifier: '23', timestamp: 'some-ts', value: 0.036 },
+    ]);
+  });
 });
