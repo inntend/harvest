@@ -7,21 +7,19 @@ import {
 const scheduler = new AdaptorScheduler();
 
 // One weather station in Berlin. Each measurement maps an Open-Meteo read
-// field to an output series, converting into the unit we want via @inntend/convert:
-//   temperature  C    -> F     (Celsius to Fahrenheit)
-//   wind speed   km/h -> m/s
-//   the rest stay in their native unit.
+// field to an output series. We keep everything in its native metric unit;
+// downstream projects convert on read via @inntend/convert as needed.
 const components: Component[] = [
   {
     identifier: 'berlin',
     measurements: [
-      { reference: 'temperature_2m', unit: 'F', identifier: 'weather.temp_f' },
+      { reference: 'temperature_2m', unit: 'C', identifier: 'weather.temp' },
       {
         reference: 'relative_humidity_2m',
         unit: '%',
         identifier: 'weather.humidity',
       },
-      { reference: 'wind_speed_10m', unit: 'm/s', identifier: 'weather.wind' },
+      { reference: 'wind_speed_10m', unit: 'km/h', identifier: 'weather.wind' },
       {
         reference: 'wind_direction_10m',
         unit: 'deg',

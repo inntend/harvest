@@ -21,7 +21,7 @@ export class AdaptorScheduler {
 
   register<C extends Shape>(
     adaptor: Adaptor<C>,
-    config: z.infer<z.ZodObject<C>>,
+    config: z.input<z.ZodObject<C>>,
     components: Component[],
   ): this {
     const parsed = adaptor.config.parse(config);
