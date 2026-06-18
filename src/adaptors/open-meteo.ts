@@ -308,8 +308,8 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
       daily_shortwave_radiation_sum: { unit: 'MJ/m2', min: 0 },
       daily_et0_fao_evapotranspiration: { unit: 'mm', min: 0 },
       // ── Historical period keys (d{N}_ / h{N}_) are not enumerated here
-      // because the count is dynamic. The scheduler transform strips unknown
-      // keys; use fetch() directly to consume period data.
+      // because the count is dynamic. The transform strips unknown keys; use
+      // fetch() directly to consume period data.
     },
     write: {},
   },
