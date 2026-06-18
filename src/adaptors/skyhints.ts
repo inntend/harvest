@@ -44,7 +44,6 @@ const config = z.object({
 export const skyhintsAdaptor: Adaptor<typeof config.shape> = {
   id: 'skyhints',
   name: 'Skyhints Celestial',
-  schedule: '0 0 * * *', // daily at midnight
   config,
 
   def: {
@@ -60,19 +59,26 @@ export const skyhintsAdaptor: Adaptor<typeof config.shape> = {
     write: {},
   },
 
-  async fetch(cfg) {
-    switch (cfg.type) {
-      case 'moon':
-        return fetchMoon(cfg.baseUrl);
-      case 'earth':
-        return fetchEarth(cfg.baseUrl);
-      case 'retrograde':
-        return fetchRetrograde(cfg.baseUrl);
-    }
+  async fetch(cfg, range) {
+    const values = await fetchValues(cfg);
+    return [{ timestamp: range.to.toISOString(), values }];
   },
 };
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
+
+async function fetchValues(
+  cfg: z.infer<typeof config>,
+): Promise<Record<string, number>> {
+  switch (cfg.type) {
+    case 'moon':
+      return fetchMoon(cfg.baseUrl);
+    case 'earth':
+      return fetchEarth(cfg.baseUrl);
+    case 'retrograde':
+      return fetchRetrograde(cfg.baseUrl);
+  }
+}
 
 type PhaseRecord = Record<string, string | null>;
 

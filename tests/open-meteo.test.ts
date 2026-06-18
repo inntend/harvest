@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openMeteoAdaptor } from '../src/adaptors/open-meteo';
 
+const RANGE = {
+  from: new Date('2024-01-01T00:00:00Z'),
+  to: new Date('2024-01-02T00:00:00Z'),
+};
+const values = (r: { values: Record<string, number> }[]) => r[0].values;
+
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
 const CURRENT = {
@@ -87,10 +93,9 @@ describe('openMeteoAdaptor', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   describe('metadata', () => {
-    it('has the expected id, name, and hourly schedule', () => {
+    it('has the expected id and name', () => {
       expect(openMeteoAdaptor.id).toBe('open-meteo');
       expect(openMeteoAdaptor.name).toBe('Open-Meteo Weather');
-      expect(openMeteoAdaptor.schedule).toMatch(/^0 \* \* \* \*$/);
     });
 
     it('def has no write fields', () => {
@@ -182,7 +187,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('calls the forecast API URL with current and daily params', async () => {
-      await openMeteoAdaptor.fetch(cfg);
+      await openMeteoAdaptor.fetch(cfg, RANGE);
 
       const url = calledUrl();
       expect(url.origin + url.pathname).toBe(
@@ -195,7 +200,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('returns current values as flat keys', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result.temperature_2m).toBe(12.5);
       expect(result.wind_speed_10m).toBe(15.2);
@@ -204,14 +209,14 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('strips the API envelope fields (time, interval)', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('time');
       expect(result).not.toHaveProperty('interval');
     });
 
     it("returns today's daily aggregates prefixed with daily_", async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result.daily_temperature_2m_max).toBe(15.1);
       expect(result.daily_precipitation_sum).toBe(0.4);
@@ -220,7 +225,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('converts sunrise/sunset to Unix timestamps', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result.daily_sunrise).toBe(
         Math.floor(new Date('2024-01-15T08:23:00Z').getTime() / 1000),
@@ -239,7 +244,7 @@ describe('openMeteoAdaptor', () => {
         }),
       );
 
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('cape');
       expect(result.temperature_2m).toBe(12.5);
@@ -248,19 +253,19 @@ describe('openMeteoAdaptor', () => {
     it('throws on non-ok HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 500));
 
-      await expect(openMeteoAdaptor.fetch(cfg)).rejects.toThrow('500');
+      await expect(openMeteoAdaptor.fetch(cfg, RANGE)).rejects.toThrow('500');
     });
 
     it('handles a response with no current block', async () => {
       vi.stubGlobal('fetch', mockFetch({ daily: DAILY_BLOCK }));
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result).not.toHaveProperty('temperature_2m');
       expect(result.daily_temperature_2m_max).toBe(15.1);
     });
 
     it('handles a response with no daily block', async () => {
       vi.stubGlobal('fetch', mockFetch({ current: CURRENT }));
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result.temperature_2m).toBe(12.5);
       expect(result).not.toHaveProperty('daily_temperature_2m_max');
     });
@@ -273,7 +278,7 @@ describe('openMeteoAdaptor', () => {
           daily: { temperature_2m_max: [15.1], precipitation_sum: [0.4] },
         }),
       );
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result.daily_temperature_2m_max).toBe(15.1);
       expect(result.daily_precipitation_sum).toBe(0.4);
     });
@@ -286,7 +291,7 @@ describe('openMeteoAdaptor', () => {
           daily: { ...DAILY_BLOCK, sunrise: [null], sunset: [null] },
         }),
       );
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result).not.toHaveProperty('daily_sunrise');
       expect(result).not.toHaveProperty('daily_sunset');
       expect(result.daily_temperature_2m_max).toBe(15.1);
@@ -310,7 +315,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('calls the archive API with start_date and end_date', async () => {
-      await openMeteoAdaptor.fetch(cfg);
+      await openMeteoAdaptor.fetch(cfg, RANGE);
 
       const url = calledUrl();
       expect(url.origin + url.pathname).toBe(
@@ -324,7 +329,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('returns each day as a d{N}_ prefixed group', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       // d0 = first day
       expect(result.d0_temperature_2m_max).toBe(15);
@@ -340,7 +345,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('converts sunrise/sunset per day to Unix timestamps', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result.d0_sunrise).toBe(
         Math.floor(new Date('2024-01-15T08:23:00Z').getTime() / 1000),
@@ -351,7 +356,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('does not produce a d{N}_time key', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(Object.keys(result).some((k) => k.endsWith('_time'))).toBe(false);
     });
@@ -360,27 +365,27 @@ describe('openMeteoAdaptor', () => {
       const dailyWithNulls = { ...makeDailyBlock(1), cape: [null] };
       vi.stubGlobal('fetch', mockFetch({ daily: dailyWithNulls }));
 
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('d0_cape');
     });
 
     it('handles a response with no daily block', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
     it('throws when startDate is missing', async () => {
       await expect(
-        openMeteoAdaptor.fetch({ ...cfg, startDate: undefined }),
+        openMeteoAdaptor.fetch({ ...cfg, startDate: undefined }, RANGE),
       ).rejects.toThrow('startDate');
     });
 
     it('throws on non-ok archive HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 404));
 
-      await expect(openMeteoAdaptor.fetch(cfg)).rejects.toThrow('404');
+      await expect(openMeteoAdaptor.fetch(cfg, RANGE)).rejects.toThrow('404');
     });
   });
 
@@ -401,7 +406,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('calls the archive API with hourly param and no current/daily', async () => {
-      await openMeteoAdaptor.fetch(cfg);
+      await openMeteoAdaptor.fetch(cfg, RANGE);
 
       const url = calledUrl();
       expect(url.origin + url.pathname).toBe(
@@ -414,7 +419,7 @@ describe('openMeteoAdaptor', () => {
 
     it('returns each hour as an h{N}_ prefixed group', async () => {
       const hourly = makeHourlyBlock(2);
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       // 2 days = 48 hours
       expect(result.h0_temperature_2m).toBe(hourly.temperature_2m[0]);
@@ -424,7 +429,7 @@ describe('openMeteoAdaptor', () => {
     });
 
     it('does not produce an h{N}_time key', async () => {
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(Object.keys(result).some((k) => k.endsWith('_time'))).toBe(false);
     });
@@ -436,7 +441,7 @@ describe('openMeteoAdaptor', () => {
       };
       vi.stubGlobal('fetch', mockFetch({ hourly: hourlyWithNulls }));
 
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
 
       expect(
         Object.keys(result).some(
@@ -447,20 +452,20 @@ describe('openMeteoAdaptor', () => {
 
     it('throws when endDate is missing', async () => {
       await expect(
-        openMeteoAdaptor.fetch({ ...cfg, endDate: undefined }),
+        openMeteoAdaptor.fetch({ ...cfg, endDate: undefined }, RANGE),
       ).rejects.toThrow('endDate');
     });
 
     it('handles a response with no hourly block', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
-      const result = await openMeteoAdaptor.fetch(cfg);
+      const result = values(await openMeteoAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
     it('throws on non-ok archive HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 422));
 
-      await expect(openMeteoAdaptor.fetch(cfg)).rejects.toThrow('422');
+      await expect(openMeteoAdaptor.fetch(cfg, RANGE)).rejects.toThrow('422');
     });
   });
 });

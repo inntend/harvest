@@ -16,15 +16,17 @@ export type {
   ConnectorSpec,
   ConnectorStore,
   HarvesterOptions,
+  Interval,
 } from './harvester';
-export { Harvester } from './harvester';
+export { Harvester, subtractIntervals } from './harvester';
 export type {
   ConfigureInput,
   ErrorEvent,
   RetryOptions,
-} from './scheduler';
-export { AdaptorScheduler } from './scheduler';
+  WriteInput,
+} from './registry';
+export { AdaptorRegistry } from './registry';
 export { Schema } from './schema';
 export { Transform } from './transform';
-export type { Adaptor, AnyAdaptor, DataEvent } from './types';
+export type { Adaptor, AnyAdaptor, Range, Reading } from './types';
 export { UnknownAdaptorError } from './types';

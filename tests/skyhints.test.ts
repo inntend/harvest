@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { skyhintsAdaptor } from '../src/adaptors/skyhints';
 
+const RANGE = {
+  from: new Date('2024-01-01T00:00:00Z'),
+  to: new Date('2024-01-02T00:00:00Z'),
+};
+const values = (r: { values: Record<string, number> }[]) => r[0].values;
+
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
 const BASE = 'https://api.skyhints.example';
@@ -99,10 +105,9 @@ describe('skyhintsAdaptor', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   describe('metadata', () => {
-    it('has the expected id, name, and daily schedule', () => {
+    it('has the expected id and name', () => {
       expect(skyhintsAdaptor.id).toBe('skyhints');
       expect(skyhintsAdaptor.name).toBe('Skyhints Celestial');
-      expect(skyhintsAdaptor.schedule).toMatch(/^0 0 \* \* \*$/);
     });
 
     it('def has no write fields and no properties', () => {
@@ -143,12 +148,12 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('calls /moon endpoint', async () => {
-      await skyhintsAdaptor.fetch(cfg);
+      await skyhintsAdaptor.fetch(cfg, RANGE);
       expect(calledUrl()).toBe(`${BASE}/moon`);
     });
 
     it('returns moon_{N}_{phase} keys as Unix timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result.moon_0_new).toBe(
         Math.floor(
@@ -168,7 +173,7 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('skips null phase timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('moon_0_first_quarter');
       expect(result).not.toHaveProperty('moon_0_waxing_gibbous');
@@ -177,19 +182,19 @@ describe('skyhintsAdaptor', () => {
 
     it('returns an empty record when phases array is empty', async () => {
       vi.stubGlobal('fetch', mockFetch({ phases: [] }));
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
     it('returns an empty record when phases key is absent', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
     it('throws on non-ok HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 404));
-      await expect(skyhintsAdaptor.fetch(cfg)).rejects.toThrow('404');
+      await expect(skyhintsAdaptor.fetch(cfg, RANGE)).rejects.toThrow('404');
     });
   });
 
@@ -203,12 +208,12 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('calls /earth endpoint', async () => {
-      await skyhintsAdaptor.fetch(cfg);
+      await skyhintsAdaptor.fetch(cfg, RANGE);
       expect(calledUrl()).toBe(`${BASE}/earth`);
     });
 
     it('returns earth_{N}_{season} keys as Unix timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result.earth_0_vernal).toBe(
         Math.floor(
@@ -228,7 +233,7 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('skips null season timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('earth_0_autumn');
       expect(result).not.toHaveProperty('earth_0_winter');
@@ -237,13 +242,13 @@ describe('skyhintsAdaptor', () => {
 
     it('returns an empty record when phases key is absent', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
     it('throws on non-ok HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 500));
-      await expect(skyhintsAdaptor.fetch(cfg)).rejects.toThrow('500');
+      await expect(skyhintsAdaptor.fetch(cfg, RANGE)).rejects.toThrow('500');
     });
   });
 
@@ -257,12 +262,12 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('calls /retrograde endpoint', async () => {
-      await skyhintsAdaptor.fetch(cfg);
+      await skyhintsAdaptor.fetch(cfg, RANGE);
       expect(calledUrl()).toBe(`${BASE}/retrograde`);
     });
 
     it('returns retrograde_{planet}_{N}_{phase} keys as Unix timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result.retrograde_mercury_0_pre_shadow).toBe(
         Math.floor(new Date('2021-12-29T09:27:05+00:00').getTime() / 1000),
@@ -282,14 +287,14 @@ describe('skyhintsAdaptor', () => {
     });
 
     it('skips null retrograde phase timestamps', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result).not.toHaveProperty('retrograde_mercury_0_post_shadow');
       expect(result).not.toHaveProperty('retrograde_venus_0_post_shadow');
     });
 
     it('produces no keys for planets with empty period arrays', async () => {
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       for (const planet of [
         'mars',
@@ -308,7 +313,7 @@ describe('skyhintsAdaptor', () => {
 
     it('handles missing phases key gracefully', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
       expect(result).toEqual({});
     });
 
@@ -317,7 +322,7 @@ describe('skyhintsAdaptor', () => {
         phases: { mercury: RETROGRADE_RESPONSE.phases.mercury },
       };
       vi.stubGlobal('fetch', mockFetch(partial));
-      const result = await skyhintsAdaptor.fetch(cfg);
+      const result = values(await skyhintsAdaptor.fetch(cfg, RANGE));
 
       expect(result.retrograde_mercury_0_retrograde).toBeDefined();
       expect(
@@ -327,7 +332,7 @@ describe('skyhintsAdaptor', () => {
 
     it('throws on non-ok HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 503));
-      await expect(skyhintsAdaptor.fetch(cfg)).rejects.toThrow('503');
+      await expect(skyhintsAdaptor.fetch(cfg, RANGE)).rejects.toThrow('503');
     });
   });
 });

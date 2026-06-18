@@ -208,7 +208,6 @@ const config = z.object({
 export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
   id: 'open-meteo',
   name: 'Open-Meteo Weather',
-  schedule: '0 * * * *', // every hour
   config,
 
   def: {
@@ -315,39 +314,48 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
     write: {},
   },
 
-  async fetch(cfg) {
-    switch (cfg.resolution) {
-      case 'daily':
-        if (!cfg.startDate || !cfg.endDate)
-          throw new Error(
-            'startDate and endDate are required for daily resolution',
-          );
-        return fetchHistoricalDaily(
-          cfg.latitude,
-          cfg.longitude,
-          cfg.timezone,
-          cfg.startDate,
-          cfg.endDate,
-        );
-      case 'hourly':
-        if (!cfg.startDate || !cfg.endDate)
-          throw new Error(
-            'startDate and endDate are required for hourly resolution',
-          );
-        return fetchHistoricalHourly(
-          cfg.latitude,
-          cfg.longitude,
-          cfg.timezone,
-          cfg.startDate,
-          cfg.endDate,
-        );
-      default:
-        return fetchCurrent(cfg.latitude, cfg.longitude, cfg.timezone);
-    }
+  async fetch(cfg, range) {
+    const values = await fetchValues(cfg);
+    // Current implementation emits one reading per fetch; per-period timestamp
+    // expansion (d{N}_/h{N}_ → real times) is a future enhancement.
+    return [{ timestamp: range.to.toISOString(), values }];
   },
 };
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
+
+async function fetchValues(
+  cfg: z.infer<typeof config>,
+): Promise<Record<string, number>> {
+  switch (cfg.resolution) {
+    case 'daily':
+      if (!cfg.startDate || !cfg.endDate)
+        throw new Error(
+          'startDate and endDate are required for daily resolution',
+        );
+      return fetchHistoricalDaily(
+        cfg.latitude,
+        cfg.longitude,
+        cfg.timezone,
+        cfg.startDate,
+        cfg.endDate,
+      );
+    case 'hourly':
+      if (!cfg.startDate || !cfg.endDate)
+        throw new Error(
+          'startDate and endDate are required for hourly resolution',
+        );
+      return fetchHistoricalHourly(
+        cfg.latitude,
+        cfg.longitude,
+        cfg.timezone,
+        cfg.startDate,
+        cfg.endDate,
+      );
+    default:
+      return fetchCurrent(cfg.latitude, cfg.longitude, cfg.timezone);
+  }
+}
 
 async function fetchCurrent(
   latitude: number,
