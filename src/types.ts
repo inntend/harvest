@@ -17,9 +17,19 @@ export type Adaptor<C extends Shape> = {
 };
 
 export type DataEvent = {
+  readonly connectorId: string;
   readonly adaptorId: string;
   readonly timestamp: Date;
   readonly data: SeriesEntry[];
 };
 
 export type AnyAdaptor = Adaptor<any>;
+
+// Thrown by `configure()` when a connector references an adaptor type id that
+// was never `provide()`d (e.g. a custom adaptor the host app forgot to supply).
+export class UnknownAdaptorError extends Error {
+  constructor(public readonly adaptorId: string) {
+    super(`Unknown adaptor: ${adaptorId}`);
+    this.name = 'UnknownAdaptorError';
+  }
+}
