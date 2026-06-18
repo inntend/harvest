@@ -78,6 +78,11 @@ export class AdaptorRegistry {
     return this.#connectors.has(connectorId);
   }
 
+  // The ids of all currently-configured connectors.
+  connectorIds(): string[] {
+    return [...this.#connectors.keys()];
+  }
+
   // Fetch a range and transform the readings into SeriesEntry[] (each entry's
   // identifier is the feed id from the configured components).
   async fetch(connectorId: string, range: Range): Promise<SeriesEntry[]> {

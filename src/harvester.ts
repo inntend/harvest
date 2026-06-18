@@ -134,6 +134,11 @@ export class Harvester {
     await this.#registry.write(connectorId, inputs);
   }
 
+  // The ids of all loaded/configured connectors (enabled + adaptor available).
+  connectorIds(): string[] {
+    return this.#registry.connectorIds();
+  }
+
   async #emitError(event: ErrorEvent): Promise<void> {
     await Promise.all(this.#errorHandlers.map((h) => h(event)));
   }
