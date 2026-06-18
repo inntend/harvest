@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@inntend/convert':
-        specifier: 0.0.3
-        version: 0.0.3
+        specifier: 0.0.4
+        version: 0.0.4
       croner:
         specifier: ^10.0.1
         version: 10.0.1
@@ -438,8 +438,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@inntend/convert@0.0.3':
-    resolution: {integrity: sha512-k2kIHiKYqW3H9g1vKU+9nvR6pVMMFZWKrQsf/ZIbYDwct7NXRJ6ijBzkPP4U04vM3kDRhQKm6ksTSkuztD48Cw==}
+  '@inntend/convert@0.0.4':
+    resolution: {integrity: sha512-okv1M/SGysCVuKwR8wuzkGs6oVXCrIZOStbTi1Lunf93dZF0qleHNFWMYUBHm9jJZzhP7b4j/7tMlFyyIMgaJg==}
     engines: {node: '>=20', pnpm: '>=9'}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -1471,7 +1471,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@inntend/convert@0.0.3':
+  '@inntend/convert@0.0.4':
     dependencies:
       big.js: 7.0.1
 

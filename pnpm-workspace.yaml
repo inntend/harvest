@@ -2,3 +2,4 @@ allowBuilds:
   esbuild: false
 minimumReleaseAgeExclude:
   - '@inntend/convert@0.0.3'
+  - '@inntend/convert@0.0.4'
