@@ -83,6 +83,11 @@ export class AdaptorRegistry {
     return [...this.#connectors.keys()];
   }
 
+  // The def for a registered adaptor type, or null if unknown.
+  adaptorDef(adaptorId: string): AnyAdaptor['def'] | null {
+    return this.#catalog.get(adaptorId)?.def ?? null;
+  }
+
   // Fetch a range and transform the readings into SeriesEntry[] (each entry's
   // identifier is the feed id from the configured components).
   async fetch(connectorId: string, range: Range): Promise<SeriesEntry[]> {

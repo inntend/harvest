@@ -13,6 +13,7 @@ import {
 import { demoAdaptor } from './adaptors/demo';
 import { openMeteoAdaptor } from './adaptors/open-meteo';
 import { skyhintsAdaptor } from './adaptors/skyhints';
+import type { AdaptorDef } from './definition';
 import {
   type ConnectorStore,
   Harvester,
@@ -39,6 +40,8 @@ export type HarvesterContextValue = {
   reload: () => Promise<void>;
   // Last error per connector id (unknown adaptor, exhausted fetch retries, …).
   health: Record<string, ErrorEvent>;
+  // The def for a provided adaptor type (catalog lookup — available before load()).
+  adaptorDef: (adaptorId: string) => AdaptorDef | null;
 };
 
 const HarvesterContext = createContext<HarvesterContextValue | null>(null);
@@ -138,9 +141,33 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
     setConnectorIds(harvester.connectorIds());
   }, []);
 
+  const adaptorDef = useCallback(
+    (adaptorId: string): AdaptorDef | null =>
+      harvesterRef.current?.adaptorDef(adaptorId) ?? null,
+    [],
+  );
+
   const value = useMemo(
-    () => ({ ready, connectorIds, fetchRange, refetch, write, reload, health }),
-    [ready, connectorIds, fetchRange, refetch, write, reload, health],
+    () => ({
+      ready,
+      connectorIds,
+      fetchRange,
+      refetch,
+      write,
+      reload,
+      health,
+      adaptorDef,
+    }),
+    [
+      ready,
+      connectorIds,
+      fetchRange,
+      refetch,
+      write,
+      reload,
+      health,
+      adaptorDef,
+    ],
   );
 
   return createElement(HarvesterContext.Provider, { value }, children);

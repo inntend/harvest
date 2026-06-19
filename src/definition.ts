@@ -2,7 +2,12 @@ export type Bound = number | string; // string = key in def.properties
 
 export type PropertyDef = { unit: string; value: number };
 
-export type FieldDef = { unit: string; min?: Bound; max?: Bound };
+export type FieldDef = {
+  unit: string;
+  label?: string;
+  min?: Bound;
+  max?: Bound;
+};
 
 export type AdaptorDef = {
   properties: Record<string, PropertyDef>;

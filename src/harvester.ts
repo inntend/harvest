@@ -150,6 +150,11 @@ export class Harvester {
     return this.#registry.connectorIds();
   }
 
+  // The def for a registered adaptor type, or null if not provided.
+  adaptorDef(adaptorId: string): ReturnType<AdaptorRegistry['adaptorDef']> {
+    return this.#registry.adaptorDef(adaptorId);
+  }
+
   async #emitError(event: ErrorEvent): Promise<void> {
     await Promise.all(this.#errorHandlers.map((h) => h(event)));
   }
