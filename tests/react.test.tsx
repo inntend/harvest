@@ -56,6 +56,7 @@ function makeStore(
     }),
     commitCoverage: vi.fn(async () => {}),
     writeSeries: vi.fn(async () => {}),
+    reset: vi.fn(async () => {}),
   };
 }
 

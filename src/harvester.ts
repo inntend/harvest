@@ -36,6 +36,9 @@ export interface ConnectorStore {
   ): Promise<boolean>;
   commitCoverage(connectorId: string, from: string, to: string): Promise<void>;
   writeSeries(connectorId: string, entries: SeriesEntry[]): Promise<void>;
+  // Clear coverage, claims and connector-sourced series for [from, to) so the
+  // range can be fetched fresh — backs Harvester.refetch().
+  reset(connectorId: string, from: string, to: string): Promise<void>;
 }
 
 export type HarvesterOptions = {
@@ -127,6 +130,14 @@ export class Harvester {
         // claim to expire so a later request retries this gap (self-heal).
       }
     }
+  }
+
+  // Force a re-fetch of [from, to): clear its coverage/claims/series for the
+  // connector, then fetch it again (writing fresh values).
+  async refetch(connectorId: string, from: Date, to: Date): Promise<void> {
+    if (!this.#registry.has(connectorId)) return;
+    await this.#store.reset(connectorId, from.toISOString(), to.toISOString());
+    await this.fetchRange(connectorId, from, to);
   }
 
   // Manual write-back: push values out via the connector's adaptor.send().

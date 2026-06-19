@@ -60,6 +60,7 @@ function makeStore(
     }),
     commitCoverage: vi.fn(async () => {}),
     writeSeries: vi.fn(async (_id: string, _entries: SeriesEntry[]) => {}),
+    reset: vi.fn(async () => {}),
   };
 }
 
@@ -155,6 +156,31 @@ describe('Harvester.fetchRange', () => {
     await h.load();
     await h.fetchRange('c1', FROM, TO);
     expect(store.writeSeries).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Harvester.refetch', () => {
+  it('resets the range then fetches it', async () => {
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.refetch('c1', FROM, TO);
+
+    expect(store.reset).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      TO.toISOString(),
+    );
+    expect(store.writeSeries).toHaveBeenCalledOnce();
+    expect(store.commitCoverage).toHaveBeenCalledOnce();
+  });
+
+  it('is a no-op for an unconfigured connector', async () => {
+    const store = makeStore([]);
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.refetch('ghost', FROM, TO);
+    expect(store.reset).not.toHaveBeenCalled();
   });
 });
 

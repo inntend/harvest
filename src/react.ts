@@ -31,6 +31,8 @@ export type HarvesterContextValue = {
   connectorIds: string[];
   // Fill any uncovered gaps of [from, to) for one connector (on demand).
   fetchRange: (connectorId: string, from: Date, to: Date) => Promise<void>;
+  // Force a re-fetch of [from, to): clear its coverage/claims/series, then fetch.
+  refetch: (connectorId: string, from: Date, to: Date) => Promise<void>;
   // Manual write-back: push values out via the connector's adaptor.send().
   write: (connectorId: string, inputs: WriteInput[]) => Promise<void>;
   // Re-read connector configs (e.g. after new connectors arrive).
@@ -115,6 +117,13 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
     [],
   );
 
+  const refetch = useCallback(
+    async (connectorId: string, from: Date, to: Date) => {
+      await harvesterRef.current?.refetch(connectorId, from, to);
+    },
+    [],
+  );
+
   const write = useCallback(
     async (connectorId: string, inputs: WriteInput[]) => {
       await harvesterRef.current?.write(connectorId, inputs);
@@ -130,8 +139,8 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
   }, []);
 
   const value = useMemo(
-    () => ({ ready, connectorIds, fetchRange, write, reload, health }),
-    [ready, connectorIds, fetchRange, write, reload, health],
+    () => ({ ready, connectorIds, fetchRange, refetch, write, reload, health }),
+    [ready, connectorIds, fetchRange, refetch, write, reload, health],
   );
 
   return createElement(HarvesterContext.Provider, { value }, children);
