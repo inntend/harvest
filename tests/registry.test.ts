@@ -197,5 +197,6 @@ describe('AdaptorRegistry', () => {
       });
     expect(reg.has('home')).toBe(true);
     expect(reg.has('work')).toBe(true);
+    expect(reg.connectorIds()).toEqual(['home', 'work']);
   });
 });

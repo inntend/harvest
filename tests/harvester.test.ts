@@ -112,6 +112,14 @@ describe('Harvester.fetchRange', () => {
     expect(store.writeSeries).not.toHaveBeenCalled();
   });
 
+  it('exposes the ids of loaded connectors', async () => {
+    const store = makeStore([spec(), spec({ id: 'c2' })]);
+    const h = harvester(store).provide(adaptor());
+    expect(h.connectorIds()).toEqual([]); // none before load
+    await h.load();
+    expect(h.connectorIds()).toEqual(['c1', 'c2']);
+  });
+
   it('reports onError for connectors whose adaptor was not provided', async () => {
     const onError = vi.fn();
     const store = makeStore([spec({ id: 'custom', adaptorId: 'missing' })]);
