@@ -2,15 +2,21 @@ import { z } from 'zod';
 import type { Adaptor, Range, Reading } from '../types';
 
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+const ARCHIVE_URL = 'https://archive-api.open-meteo.com/v1/archive';
 
-// Daily aggregate variables fetched for a range. The forecast endpoint serves
-// daily data for roughly the past ~92 days plus the forecast window, which
-// covers the typical chart range (a month or so back, including today).
+// ERA5 archive has a ~5-day processing delay. Dates within that lag are served
+// by the forecast endpoint (which has live NWP data); older dates use the
+// archive endpoint (ERA5 reanalysis, no nulls, goes back to 1940).
+const ARCHIVE_LAG_DAYS = 5;
+
+// Daily aggregate variables fetched for a range.
 const DAILY_VARS = [
   'temperature_2m_max',
   'temperature_2m_min',
+  'temperature_2m_mean',
   'apparent_temperature_max',
   'apparent_temperature_min',
+  'apparent_temperature_mean',
   'precipitation_sum',
   'rain_sum',
   'snowfall_sum',
@@ -45,26 +51,38 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
       temperature_2m_max: {
         unit: 'C',
         label: 'Max Temperature',
-        min: -80,
-        max: 60,
+        min: -100,
+        max: 80,
       },
       temperature_2m_min: {
         unit: 'C',
         label: 'Min Temperature',
-        min: -80,
-        max: 60,
+        min: -100,
+        max: 80,
+      },
+      temperature_2m_mean: {
+        unit: 'C',
+        label: 'Average Temperature',
+        min: -100,
+        max: 80,
       },
       apparent_temperature_max: {
         unit: 'C',
-        label: 'Max Feels-like',
-        min: -80,
-        max: 60,
+        label: 'Max Feels-like Temperature',
+        min: -100,
+        max: 80,
       },
       apparent_temperature_min: {
         unit: 'C',
-        label: 'Min Feels-like',
-        min: -80,
-        max: 60,
+        label: 'Min Feels-like Temperature',
+        min: -100,
+        max: 80,
+      },
+      apparent_temperature_mean: {
+        unit: 'C',
+        label: 'Feels-like Temperature',
+        min: -100,
+        max: 80,
       },
       precipitation_sum: { unit: 'mm', label: 'Precipitation', min: 0 },
       rain_sum: { unit: 'mm', label: 'Rain', min: 0 },
@@ -104,16 +122,58 @@ async function fetchDaily(
   timezone: string,
   range: Range,
 ): Promise<Reading[]> {
+  // Split at the archive lag boundary to avoid nulls from the forecast endpoint
+  // for dates older than ~ARCHIVE_LAG_DAYS. String comparison is safe here
+  // since both sides produce YYYY-MM-DD.
+  const today = new Date();
+  const cutoff = new Date(
+    Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() - ARCHIVE_LAG_DAYS,
+    ),
+  );
+  const cutoffStr = isoDate(cutoff);
+  const dayAfterCutoffStr = isoDate(
+    new Date(cutoff.getTime() + 86_400_000),
+  );
+
+  const fromStr = isoDate(range.from);
+  const toStr = isoDate(range.to);
+
+  const fetches: Promise<Reading[]>[] = [];
+
+  if (fromStr <= cutoffStr) {
+    const archiveTo = toStr <= cutoffStr ? toStr : cutoffStr;
+    fetches.push(fetchEndpoint(ARCHIVE_URL, latitude, longitude, timezone, fromStr, archiveTo));
+  }
+
+  if (toStr > cutoffStr) {
+    const forecastFrom = fromStr > cutoffStr ? fromStr : dayAfterCutoffStr;
+    fetches.push(fetchEndpoint(FORECAST_URL, latitude, longitude, timezone, forecastFrom, toStr));
+  }
+
+  return (await Promise.all(fetches)).flat();
+}
+
+async function fetchEndpoint(
+  url: string,
+  latitude: number,
+  longitude: number,
+  timezone: string,
+  startDate: string,
+  endDate: string,
+): Promise<Reading[]> {
   const params = new URLSearchParams({
     latitude: latitude.toString(),
     longitude: longitude.toString(),
     timezone,
-    start_date: isoDate(range.from),
-    end_date: isoDate(range.to),
+    start_date: startDate,
+    end_date: endDate,
     daily: DAILY_VARS.join(','),
   });
 
-  const res = await fetch(`${FORECAST_URL}?${params}`);
+  const res = await fetch(`${url}?${params}`);
   if (!res.ok)
     throw new Error(`open-meteo HTTP ${res.status}: ${res.statusText}`);
 
