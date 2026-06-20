@@ -15,11 +15,25 @@ export type ConnectorSpec = {
   enabled?: boolean; // default true; disabled connectors are never invoked
   config: Record<string, unknown>; // -> adaptor.config.parse (bootstrap/credentials)
   components: Component[]; // read feeds -> { reference, unit, identifier: feedId }
+  // Config keys driven by a measurement history (e.g. ['latitude','longitude']).
+  // Empty/absent ⇒ fixed connector (single fetch over the whole range).
+  inputs?: string[];
 };
 
 // An ISO-8601 [from, to) interval. String form keeps the port serialization-free
 // and lexicographically sortable (all UTC `…Z`).
 export type Interval = { from: string; to: string };
+
+// One sample of a time-varying input parameter. `reference` is the adaptor
+// config key; `timestamp` is ISO-8601. Used to segment the fetch range.
+export type ParameterPoint = {
+  reference: string;
+  timestamp: string;
+  value: number;
+};
+
+// A constant-config window of [from, to) with the input values active over it.
+export type Segment = { from: string; to: string; config: Record<string, number> };
 
 // The port the host implements over its persistence layer. Harvest owns *when*
 // to call these; the host owns the reads/writes (and dedupe).
@@ -39,6 +53,14 @@ export interface ConnectorStore {
   // Clear coverage, claims and connector-sourced series for [from, to) so the
   // range can be fetched fresh — backs Harvester.refetch().
   reset(connectorId: string, from: string, to: string): Promise<void>;
+  // History of a connector's input parameters over [from, to), including the
+  // last value at or before `from` per reference (carry-in) so the first
+  // segment's value is known. Only called for connectors with `inputs`.
+  parameterHistory?(
+    connectorId: string,
+    from: string,
+    to: string,
+  ): Promise<ParameterPoint[]>;
 }
 
 export type HarvesterOptions = {
@@ -56,6 +78,8 @@ export class Harvester {
   readonly #registry: AdaptorRegistry;
   readonly #deviceId: string;
   readonly #errorHandlers: ((event: ErrorEvent) => void | Promise<void>)[] = [];
+  // connectorId -> config keys driven by a measurement history (from spec.inputs).
+  readonly #inputs = new Map<string, string[]>();
 
   constructor(options: HarvesterOptions) {
     this.#store = options.store;
@@ -80,6 +104,7 @@ export class Harvester {
   // whose adaptor wasn't provided (custom, unsupplied) are skipped via onError.
   async load(): Promise<void> {
     const specs = await this.#store.list();
+    this.#inputs.clear();
     for (const spec of specs) {
       if (spec.enabled === false) continue;
       try {
@@ -88,7 +113,9 @@ export class Harvester {
           adaptorId: spec.adaptorId,
           config: spec.config,
           components: spec.components,
+          inputs: spec.inputs,
         });
+        if (spec.inputs?.length) this.#inputs.set(spec.id, spec.inputs);
       } catch (error) {
         await this.#emitError({
           connectorId: spec.id,
@@ -110,6 +137,7 @@ export class Harvester {
       to.toISOString(),
       covered,
     );
+    const inputs = this.#inputs.get(connectorId);
     for (const gap of gaps) {
       const claimed = await this.#store.claim(
         connectorId,
@@ -119,10 +147,13 @@ export class Harvester {
       );
       if (!claimed) continue;
       try {
-        const entries = await this.#registry.fetch(connectorId, {
-          from: new Date(gap.from),
-          to: new Date(gap.to),
-        });
+        const entries =
+          inputs?.length && this.#store.parameterHistory
+            ? await this.#fetchSegmented(connectorId, gap, inputs)
+            : await this.#registry.fetch(connectorId, {
+                from: new Date(gap.from),
+                to: new Date(gap.to),
+              });
         await this.#store.writeSeries(connectorId, entries);
         await this.#store.commitCoverage(connectorId, gap.from, gap.to);
       } catch {
@@ -130,6 +161,37 @@ export class Harvester {
         // claim to expire so a later request retries this gap (self-heal).
       }
     }
+  }
+
+  // Resolve the connector's input histories over the gap, split it into
+  // constant-config segments (hold-forward), and fetch each segment with its own
+  // config override. Segments missing a value for any required input are skipped
+  // (no value ⇒ no data) but the gap is still committed as covered; a fetch
+  // error propagates so the caller aborts the gap (no commit → retried).
+  async #fetchSegmented(
+    connectorId: string,
+    gap: Interval,
+    inputs: string[],
+  ): Promise<SeriesEntry[]> {
+    const points =
+      (await this.#store.parameterHistory?.(
+        connectorId,
+        gap.from,
+        gap.to,
+      )) ?? [];
+    const segments = segmentByParameters(gap.from, gap.to, points);
+    const entries: SeriesEntry[] = [];
+    for (const segment of segments) {
+      const resolved = inputs.every((ref) => ref in segment.config);
+      if (!resolved) continue;
+      const segEntries = await this.#registry.fetch(
+        connectorId,
+        { from: new Date(segment.from), to: new Date(segment.to) },
+        segment.config,
+      );
+      entries.push(...segEntries);
+    }
+    return entries;
   }
 
   // Force a re-fetch of [from, to): clear its coverage/claims/series for the
@@ -179,4 +241,48 @@ export function subtractIntervals(
   }
   if (cursor < to) gaps.push({ from: cursor, to });
   return gaps;
+}
+
+// Split [from, to) into constant-config segments from time-varying input points,
+// using hold-forward (step) semantics: each point's value applies from its
+// timestamp until the next change for that reference. `points` should include
+// the last value at or before `from` per reference (carry-in) so the first
+// segment is resolved. A reference with no value at a segment is simply absent
+// from that segment's config (the caller decides whether that's fetchable).
+export function segmentByParameters(
+  from: string,
+  to: string,
+  points: ParameterPoint[],
+): Segment[] {
+  if (points.length === 0) return [];
+
+  const sorted = [...points].sort((a, b) =>
+    a.timestamp < b.timestamp ? -1 : 1,
+  );
+
+  // Boundaries: `from`, then each distinct change time strictly inside (from, to).
+  const boundaries: string[] = [from];
+  for (const p of sorted)
+    if (
+      p.timestamp > from &&
+      p.timestamp < to &&
+      p.timestamp !== boundaries[boundaries.length - 1]
+    )
+      boundaries.push(p.timestamp);
+
+  // Single forward sweep: at each boundary, fold in every point active by then
+  // (hold-forward), then snapshot the running config for the segment.
+  const segments: Segment[] = [];
+  const active: Record<string, number> = {};
+  let i = 0;
+  for (let b = 0; b < boundaries.length; b++) {
+    const segFrom = boundaries[b];
+    const segTo = b + 1 < boundaries.length ? boundaries[b + 1] : to;
+    while (i < sorted.length && sorted[i].timestamp <= segFrom) {
+      active[sorted[i].reference] = sorted[i].value;
+      i++;
+    }
+    segments.push({ from: segFrom, to: segTo, config: { ...active } });
+  }
+  return segments;
 }

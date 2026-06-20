@@ -107,6 +107,11 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
       daylight_duration: { unit: 's', label: 'Daylight Duration', min: 0 },
     },
     write: {},
+    // Coordinates may be fixed (bootstrap) or driven by a GPS history series.
+    inputs: {
+      latitude: { unit: 'deg', label: 'Latitude', min: -90, max: 90 },
+      longitude: { unit: 'deg', label: 'Longitude', min: -180, max: 180 },
+    },
   },
 
   async fetch(cfg, range) {

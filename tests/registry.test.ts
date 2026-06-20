@@ -180,6 +180,52 @@ describe('AdaptorRegistry', () => {
     );
   });
 
+  it('fetch applies a config override, re-validating the resolved config', async () => {
+    const geoConfig = z.object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+    });
+    const geo: Adaptor<typeof geoConfig.shape> = {
+      id: 'geo',
+      name: 'Geo',
+      config: geoConfig,
+      def: {
+        properties: {},
+        read: { lat: { unit: 'deg' } },
+        write: {},
+        inputs: { latitude: { unit: 'deg' }, longitude: { unit: 'deg' } },
+      },
+      fetch: async (cfg, range) => [
+        {
+          timestamp: range.from.toISOString(),
+          values: { lat: (cfg as { latitude: number }).latitude },
+        },
+      ],
+    };
+    const reg = new AdaptorRegistry().provide(geo);
+    // Bootstrap omits the (dynamic) coordinates → allowed because they're inputs.
+    reg.configure({
+      id: 'c1',
+      adaptorId: 'geo',
+      config: {},
+      components: [
+        {
+          identifier: 'c1',
+          measurements: [{ reference: 'lat', unit: 'deg', identifier: 'f' }],
+        },
+      ],
+      inputs: ['latitude', 'longitude'],
+    });
+
+    const entries = await reg.fetch('c1', RANGE, { latitude: 42, longitude: -71 });
+    expect(entries[0]).toMatchObject({ identifier: 'f', value: 42 });
+
+    // An out-of-range override fails the per-fetch config.parse.
+    await expect(
+      reg.fetch('c1', RANGE, { latitude: 999, longitude: 0 }),
+    ).rejects.toThrow();
+  });
+
   it('supports multiple connectors of one adaptor type', () => {
     const reg = new AdaptorRegistry().provide(makeAdaptor());
     reg

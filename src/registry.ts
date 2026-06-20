@@ -29,13 +29,17 @@ export type ConfigureInput = {
   adaptorId: string; // adaptor type id, resolved from the catalog
   config: unknown; // validated via adaptor.config.parse
   components: Component[];
+  // Config keys supplied per-fetch from a measurement history. They may be
+  // absent from `config` at configure time (validated per fetch instead).
+  inputs?: string[];
 };
 
 export type WriteInput = { reference: string; value: number; unit: string };
 
 type Entry = {
   adaptor: AnyAdaptor;
-  config: Record<string, unknown>;
+  raw: unknown; // unparsed config; re-parsed with overrides for dynamic inputs
+  config: Record<string, unknown>; // parsed/validated config (no overrides)
   transform: Transform;
 };
 
@@ -62,10 +66,23 @@ export class AdaptorRegistry {
   configure(input: ConfigureInput): this {
     const adaptor = this.#catalog.get(input.adaptorId);
     if (!adaptor) throw new UnknownAdaptorError(input.adaptorId);
-    const config = adaptor.config.parse(input.config);
+    // Dynamic-input keys may be absent from the bootstrap config (they come from
+    // a measurement history per fetch), so relax them here; the per-fetch parse
+    // in fetch() validates the fully-resolved config.
+    const schema = input.inputs?.length
+      ? adaptor.config.partial(
+          Object.fromEntries(input.inputs.map((k) => [k, true])),
+        )
+      : adaptor.config;
+    const config = schema.parse(input.config) as Record<string, unknown>;
     const transform = new Transform(adaptor.def);
     transform.setup(input.components);
-    this.#connectors.set(input.id, { adaptor, config, transform });
+    this.#connectors.set(input.id, {
+      adaptor,
+      raw: input.config,
+      config,
+      transform,
+    });
     return this;
   }
 
@@ -89,11 +106,28 @@ export class AdaptorRegistry {
   }
 
   // Fetch a range and transform the readings into SeriesEntry[] (each entry's
-  // identifier is the feed id from the configured components).
-  async fetch(connectorId: string, range: Range): Promise<SeriesEntry[]> {
+  // identifier is the feed id from the configured components). `configOverride`
+  // supplies time-varying input values (e.g. a GPS segment's lat/long); they are
+  // merged onto the raw config and re-validated via adaptor.config.parse.
+  async fetch(
+    connectorId: string,
+    range: Range,
+    configOverride?: Record<string, number>,
+  ): Promise<SeriesEntry[]> {
     const entry = this.#connectors.get(connectorId);
     if (!entry) throw new Error(`Unknown connector: ${connectorId}`);
-    const readings = await this.#fetchWithRetry(connectorId, entry, range);
+    const config = configOverride
+      ? (entry.adaptor.config.parse({
+          ...(entry.raw as Record<string, unknown>),
+          ...configOverride,
+        }) as Record<string, unknown>)
+      : entry.config;
+    const readings = await this.#fetchWithRetry(
+      connectorId,
+      entry,
+      range,
+      config,
+    );
     const byTimestamp: Record<string, Record<string, number>> = {};
     for (const reading of readings)
       byTimestamp[reading.timestamp] = reading.values;
@@ -131,13 +165,14 @@ export class AdaptorRegistry {
     connectorId: string,
     entry: Entry,
     range: Range,
+    config: Record<string, unknown>,
   ): Promise<Reading[]> {
     const { retries, baseDelayMs } = this.#retry;
     const maxAttempts = retries + 1;
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await entry.adaptor.fetch(entry.config, range);
+        return await entry.adaptor.fetch(config, range);
       } catch (err) {
         lastError = err;
         const willRetry = attempt < maxAttempts;

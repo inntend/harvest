@@ -17,8 +17,14 @@ export type {
   ConnectorStore,
   HarvesterOptions,
   Interval,
+  ParameterPoint,
+  Segment,
 } from './harvester';
-export { Harvester, subtractIntervals } from './harvester';
+export {
+  Harvester,
+  segmentByParameters,
+  subtractIntervals,
+} from './harvester';
 export type {
   ConfigureInput,
   ErrorEvent,
