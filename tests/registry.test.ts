@@ -217,13 +217,24 @@ describe('AdaptorRegistry', () => {
       inputs: ['latitude', 'longitude'],
     });
 
-    const entries = await reg.fetch('c1', RANGE, { latitude: 42, longitude: -71 });
+    const entries = await reg.fetch('c1', RANGE, {
+      latitude: 42,
+      longitude: -71,
+    });
     expect(entries[0]).toMatchObject({ identifier: 'f', value: 42 });
 
     // An out-of-range override fails the per-fetch config.parse.
     await expect(
       reg.fetch('c1', RANGE, { latitude: 999, longitude: 0 }),
     ).rejects.toThrow();
+  });
+
+  it('catalog() lists all provided adaptor types with id/name/def', () => {
+    const reg = new AdaptorRegistry().provide(makeAdaptor());
+    const catalog = reg.catalog();
+    expect(catalog).toEqual([
+      { id: 'test', name: 'Test Adaptor', def: makeAdaptor().def },
+    ]);
   });
 
   it('supports multiple connectors of one adaptor type', () => {

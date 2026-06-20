@@ -1,5 +1,5 @@
 import { Convert, type UnitKey, type UnitsLibrary } from '@inntend/convert';
-import type { Component, SeriesEntry } from './definition';
+import type { AdaptorDef, Component, SeriesEntry } from './definition';
 import { Schema } from './schema';
 import { Transform } from './transform';
 import {
@@ -11,6 +11,9 @@ import {
 
 type Unit = UnitKey<typeof UnitsLibrary>;
 type ErrorHandler = (event: ErrorEvent) => void | Promise<void>;
+
+// A registered adaptor type as surfaced to the host UI (for an adaptor picker).
+export type AdaptorInfo = { id: string; name: string; def: AdaptorDef };
 
 // Bounded retry with exponential backoff applied to each fetch. `retries` is the
 // number of *additional* attempts after the first (0 = no retry).
@@ -103,6 +106,16 @@ export class AdaptorRegistry {
   // The def for a registered adaptor type, or null if unknown.
   adaptorDef(adaptorId: string): AnyAdaptor['def'] | null {
     return this.#catalog.get(adaptorId)?.def ?? null;
+  }
+
+  // All registered adaptor types (built-in + host-supplied), so the UI can list
+  // what's addable. Each carries its presentation metadata via `def`.
+  catalog(): AdaptorInfo[] {
+    return [...this.#catalog.values()].map((a) => ({
+      id: a.id,
+      name: a.name,
+      def: a.def,
+    }));
   }
 
   // Fetch a range and transform the readings into SeriesEntry[] (each entry's

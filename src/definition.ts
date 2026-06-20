@@ -17,6 +17,11 @@ export type AdaptorDef = {
   // bootstrap value (e.g. open-meteo latitude/longitude from a GPS series). The
   // key is the adaptor `config` key; FieldDef supplies unit/label/min/max for UI.
   inputs?: Record<string, FieldDef>;
+  // Presentation metadata the host renders. `description` is a one-line blurb;
+  // `icon` is an image source (URL or data-URI — an SVG/PNG per adaptor). Both
+  // travel with the adaptor, so host-supplied custom adaptors carry their own.
+  description?: string;
+  icon?: string;
 };
 
 export type PropertyOverride = {

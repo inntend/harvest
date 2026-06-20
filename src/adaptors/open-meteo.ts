@@ -47,6 +47,8 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
 
   def: {
     properties: {},
+    description:
+      'Daily weather for a location (fixed coordinates or a GPS history) from Open-Meteo.',
     read: {
       temperature_2m_max: {
         unit: 'C',
@@ -139,9 +141,7 @@ async function fetchDaily(
     ),
   );
   const cutoffStr = isoDate(cutoff);
-  const dayAfterCutoffStr = isoDate(
-    new Date(cutoff.getTime() + 86_400_000),
-  );
+  const dayAfterCutoffStr = isoDate(new Date(cutoff.getTime() + 86_400_000));
 
   const fromStr = isoDate(range.from);
   const toStr = isoDate(range.to);
@@ -150,12 +150,30 @@ async function fetchDaily(
 
   if (fromStr <= cutoffStr) {
     const archiveTo = toStr <= cutoffStr ? toStr : cutoffStr;
-    fetches.push(fetchEndpoint(ARCHIVE_URL, latitude, longitude, timezone, fromStr, archiveTo));
+    fetches.push(
+      fetchEndpoint(
+        ARCHIVE_URL,
+        latitude,
+        longitude,
+        timezone,
+        fromStr,
+        archiveTo,
+      ),
+    );
   }
 
   if (toStr > cutoffStr) {
     const forecastFrom = fromStr > cutoffStr ? fromStr : dayAfterCutoffStr;
-    fetches.push(fetchEndpoint(FORECAST_URL, latitude, longitude, timezone, forecastFrom, toStr));
+    fetches.push(
+      fetchEndpoint(
+        FORECAST_URL,
+        latitude,
+        longitude,
+        timezone,
+        forecastFrom,
+        toStr,
+      ),
+    );
   }
 
   return (await Promise.all(fetches)).flat();

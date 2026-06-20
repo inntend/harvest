@@ -1,5 +1,6 @@
 import type { Component, SeriesEntry } from './definition';
 import {
+  type AdaptorInfo,
   AdaptorRegistry,
   type ErrorEvent,
   type RetryOptions,
@@ -33,7 +34,11 @@ export type ParameterPoint = {
 };
 
 // A constant-config window of [from, to) with the input values active over it.
-export type Segment = { from: string; to: string; config: Record<string, number> };
+export type Segment = {
+  from: string;
+  to: string;
+  config: Record<string, number>;
+};
 
 // The port the host implements over its persistence layer. Harvest owns *when*
 // to call these; the host owns the reads/writes (and dedupe).
@@ -174,11 +179,8 @@ export class Harvester {
     inputs: string[],
   ): Promise<SeriesEntry[]> {
     const points =
-      (await this.#store.parameterHistory?.(
-        connectorId,
-        gap.from,
-        gap.to,
-      )) ?? [];
+      (await this.#store.parameterHistory?.(connectorId, gap.from, gap.to)) ??
+      [];
     const segments = segmentByParameters(gap.from, gap.to, points);
     const entries: SeriesEntry[] = [];
     for (const segment of segments) {
@@ -215,6 +217,11 @@ export class Harvester {
   // The def for a registered adaptor type, or null if not provided.
   adaptorDef(adaptorId: string): ReturnType<AdaptorRegistry['adaptorDef']> {
     return this.#registry.adaptorDef(adaptorId);
+  }
+
+  // All registered adaptor types (for an adaptor picker in the host UI).
+  adaptors(): AdaptorInfo[] {
+    return this.#registry.catalog();
   }
 
   async #emitError(event: ErrorEvent): Promise<void> {

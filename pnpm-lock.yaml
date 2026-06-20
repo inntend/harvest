@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@inntend/convert':
-        specifier: 0.0.4
-        version: 0.0.4
+        specifier: 0.0.5
+        version: 0.0.5
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.0
@@ -33,9 +33,6 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3)
-      tsx:
-        specifier: ^4.22.4
-        version: 4.22.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -455,8 +452,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@inntend/convert@0.0.4':
-    resolution: {integrity: sha512-okv1M/SGysCVuKwR8wuzkGs6oVXCrIZOStbTi1Lunf93dZF0qleHNFWMYUBHm9jJZzhP7b4j/7tMlFyyIMgaJg==}
+  '@inntend/convert@0.0.5':
+    resolution: {integrity: sha512-JOLb5luP2V8lrn8VZq0fR+jFaYW2VflLd31YJ/HoeWIKb9EH1aizduMGwsXyuhLyIsu2NNUy8jc42j4MKtxCHQ==}
     engines: {node: '>=20', pnpm: '>=9'}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -1604,7 +1601,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@inntend/convert@0.0.4':
+  '@inntend/convert@0.0.5':
     dependencies:
       big.js: 7.0.1
 
@@ -1989,6 +1986,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.1
       '@esbuild/win32-ia32': 0.28.1
       '@esbuild/win32-x64': 0.28.1
+    optional: true
 
   estree-walker@3.0.3:
     dependencies:
@@ -2325,6 +2323,7 @@ snapshots:
       esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   typescript@6.0.3: {}
 

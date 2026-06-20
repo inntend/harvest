@@ -26,6 +26,7 @@ export {
   subtractIntervals,
 } from './harvester';
 export type {
+  AdaptorInfo,
   ConfigureInput,
   ErrorEvent,
   RetryOptions,

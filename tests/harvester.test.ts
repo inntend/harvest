@@ -264,14 +264,18 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
 
   it('fetches once per location segment with merged config', async () => {
     const mid = '2024-01-01T12:00:00.000Z';
-    const store = makeStore([dynSpec()], {}, {
-      gps: [
-        { reference: 'latitude', timestamp: FROM.toISOString(), value: 52 },
-        { reference: 'longitude', timestamp: FROM.toISOString(), value: 13 },
-        { reference: 'latitude', timestamp: mid, value: 42 },
-        { reference: 'longitude', timestamp: mid, value: -71 },
-      ],
-    });
+    const store = makeStore(
+      [dynSpec()],
+      {},
+      {
+        gps: [
+          { reference: 'latitude', timestamp: FROM.toISOString(), value: 52 },
+          { reference: 'longitude', timestamp: FROM.toISOString(), value: 13 },
+          { reference: 'latitude', timestamp: mid, value: 42 },
+          { reference: 'longitude', timestamp: mid, value: -71 },
+        ],
+      },
+    );
     const h = harvester(store).provide(dynAdaptor());
     await h.load();
     await h.fetchRange('gps', FROM, TO);
@@ -292,12 +296,16 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     const firstPoint = '2024-01-01T12:00:00.000Z';
     // Only a value from mid-range onward → the [FROM, firstPoint) segment is
     // unresolved and skipped, but the gap is still committed as covered.
-    const store = makeStore([dynSpec()], {}, {
-      gps: [
-        { reference: 'latitude', timestamp: firstPoint, value: 42 },
-        { reference: 'longitude', timestamp: firstPoint, value: -71 },
-      ],
-    });
+    const store = makeStore(
+      [dynSpec()],
+      {},
+      {
+        gps: [
+          { reference: 'latitude', timestamp: firstPoint, value: 42 },
+          { reference: 'longitude', timestamp: firstPoint, value: -71 },
+        ],
+      },
+    );
     const h = harvester(store).provide(dynAdaptor());
     await h.load();
     await h.fetchRange('gps', FROM, TO);
@@ -325,7 +333,9 @@ describe('segmentByParameters', () => {
     const segs = segmentByParameters(FROM_S, TO_S, [
       { reference: 'latitude', timestamp: FROM_S, value: 52 },
     ]);
-    expect(segs).toEqual([{ from: FROM_S, to: TO_S, config: { latitude: 52 } }]);
+    expect(segs).toEqual([
+      { from: FROM_S, to: TO_S, config: { latitude: 52 } },
+    ]);
   });
 
   it('splits at a mid-range change (hold-forward)', () => {
@@ -344,7 +354,9 @@ describe('segmentByParameters', () => {
     const segs = segmentByParameters(FROM_S, TO_S, [
       { reference: 'latitude', timestamp: before, value: 52 },
     ]);
-    expect(segs).toEqual([{ from: FROM_S, to: TO_S, config: { latitude: 52 } }]);
+    expect(segs).toEqual([
+      { from: FROM_S, to: TO_S, config: { latitude: 52 } },
+    ]);
   });
 
   it('combines multiple references changing at different times', () => {

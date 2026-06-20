@@ -19,7 +19,12 @@ import {
   Harvester,
   type HarvesterOptions,
 } from './harvester';
-import type { ErrorEvent, RetryOptions, WriteInput } from './registry';
+import type {
+  AdaptorInfo,
+  ErrorEvent,
+  RetryOptions,
+  WriteInput,
+} from './registry';
 import type { AnyAdaptor } from './types';
 
 // Built-in adaptors auto-registered by HarvesterProvider (unless disabled).
@@ -42,6 +47,8 @@ export type HarvesterContextValue = {
   health: Record<string, ErrorEvent>;
   // The def for a provided adaptor type (catalog lookup — available before load()).
   adaptorDef: (adaptorId: string) => AdaptorDef | null;
+  // All registered adaptor types (built-in + supplied) for an adaptor picker.
+  listAdaptors: () => AdaptorInfo[];
 };
 
 const HarvesterContext = createContext<HarvesterContextValue | null>(null);
@@ -147,6 +154,11 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
     [],
   );
 
+  const listAdaptors = useCallback(
+    (): AdaptorInfo[] => harvesterRef.current?.adaptors() ?? [],
+    [],
+  );
+
   const value = useMemo(
     () => ({
       ready,
@@ -157,6 +169,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       reload,
       health,
       adaptorDef,
+      listAdaptors,
     }),
     [
       ready,
@@ -167,6 +180,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       reload,
       health,
       adaptorDef,
+      listAdaptors,
     ],
   );
 
