@@ -44,6 +44,7 @@ type Entry = {
   raw: unknown; // unparsed config; re-parsed with overrides for dynamic inputs
   config: Record<string, unknown>; // parsed/validated config (no overrides)
   transform: Transform;
+  writeSchema: Schema['write']; // validator for send() values, built once
 };
 
 const DEFAULT_RETRY: Required<RetryOptions> = { retries: 0, baseDelayMs: 500 };
@@ -80,11 +81,14 @@ export class AdaptorRegistry {
     const config = schema.parse(input.config) as Record<string, unknown>;
     const transform = new Transform(adaptor.def);
     transform.setup(input.components);
+    const writeValidator = new Schema(adaptor.def);
+    writeValidator.setup();
     this.#connectors.set(input.id, {
       adaptor,
       raw: input.config,
       config,
       transform,
+      writeSchema: writeValidator.write,
     });
     return this;
   }
@@ -168,9 +172,7 @@ export class AdaptorRegistry {
         .to(target.unit as Unit);
     }
 
-    const schema = new Schema(def);
-    schema.setup();
-    const parsed = schema.write.partial().parse(values);
+    const parsed = entry.writeSchema.partial().parse(values);
     await entry.adaptor.send(entry.config, parsed as Record<string, number>);
   }
 

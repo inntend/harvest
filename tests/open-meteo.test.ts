@@ -3,8 +3,8 @@ import { openMeteoAdaptor } from '../src/adaptors/open-meteo';
 
 const cfg = { latitude: 52.52, longitude: 13.41, timezone: 'Europe/Berlin' };
 const RANGE = {
-  from: new Date('2024-01-01T00:00:00'),
-  to: new Date('2024-01-03T23:59:59'),
+  from: new Date('2024-01-01T00:00:00Z'),
+  to: new Date('2024-01-03T23:59:59Z'),
 };
 
 const DAILY_RESPONSE = {
@@ -59,9 +59,9 @@ describe('openMeteoAdaptor', () => {
         precipitation_sum: 0,
         wind_speed_10m_max: 12.0,
       });
-      // Timestamps fall on the right calendar day (stamped at local noon).
-      expect(new Date(readings[0].timestamp).getDate()).toBe(1);
-      expect(new Date(readings[2].timestamp).getDate()).toBe(3);
+      // Timestamps fall on the right calendar day (stamped at noon UTC).
+      expect(new Date(readings[0].timestamp).getUTCDate()).toBe(1);
+      expect(new Date(readings[2].timestamp).getUTCDate()).toBe(3);
     });
 
     it('skips non-numeric / missing values', async () => {

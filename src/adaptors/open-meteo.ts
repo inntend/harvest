@@ -213,18 +213,20 @@ async function fetchEndpoint(
       const v = daily?.[key]?.[i];
       if (typeof v === 'number') values[key] = v;
     }
-    // Stamp at local noon of the calendar day so day-bucketing is stable
-    // regardless of timezone.
+    // Stamp at noon UTC of the calendar day so the timestamp is deterministic
+    // across machines (cross-device dedupe) and day-bucketing stays stable.
     readings.push({
-      timestamp: new Date(`${times[i]}T12:00:00`).toISOString(),
+      timestamp: new Date(`${times[i]}T12:00:00Z`).toISOString(),
       values,
     });
   }
   return readings;
 }
 
-// Local YYYY-MM-DD for the open-meteo date params.
+// UTC YYYY-MM-DD for the open-meteo date params. Read in UTC so the range
+// dates and the UTC-built archive cutoff compare consistently (no off-by-one
+// for machines west of UTC).
 function isoDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }

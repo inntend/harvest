@@ -46,9 +46,9 @@ export class Transform {
     }
   }
 
-  async measurements(
+  measurements(
     values: Record<string, Record<string, Convert | number>>,
-  ): Promise<SeriesEntry[]> {
+  ): SeriesEntry[] {
     const result: SeriesEntry[] = [];
 
     for (const componentId in this.#measurements) {

@@ -41,20 +41,23 @@ const PLANETS = [
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // All event occurrences across the bundled data, computed once. Each retrograde
-// uses the period's `retrograde` start as its event timestamp.
-const OCCURRENCES: { field: string; iso: string }[] = (() => {
-  const out: { field: string; iso: string }[] = [];
+// uses the period's `retrograde` start as its event timestamp. The ISO string is
+// parsed here (ms epoch + normalized timestamp) so fetch is a pure range filter.
+type Occurrence = { field: string; ms: number; timestamp: string };
+const OCCURRENCES: Occurrence[] = (() => {
+  const out: Occurrence[] = [];
+  const add = (field: string, iso: string) => {
+    const date = new Date(iso);
+    out.push({ field, ms: date.getTime(), timestamp: date.toISOString() });
+  };
   for (const cycle of moonData as EventRecord[])
-    for (const m of MOON_FIELDS)
-      if (cycle[m.key]) out.push({ field: m.field, iso: cycle[m.key] });
+    for (const m of MOON_FIELDS) if (cycle[m.key]) add(m.field, cycle[m.key]);
   for (const year of earthData as EventRecord[])
-    for (const s of SEASON_FIELDS)
-      if (year[s.key]) out.push({ field: s.field, iso: year[s.key] });
+    for (const s of SEASON_FIELDS) if (year[s.key]) add(s.field, year[s.key]);
   const retro = retrogradeData as Record<string, EventRecord[]>;
   for (const planet of PLANETS)
     for (const period of retro[planet] ?? [])
-      if (period.retrograde)
-        out.push({ field: `${planet}_retrograde`, iso: period.retrograde });
+      if (period.retrograde) add(`${planet}_retrograde`, period.retrograde);
   return out;
 })();
 
@@ -93,14 +96,12 @@ export const skyhintsAdaptor: Adaptor<typeof config.shape> = {
     const from = range.from.getTime();
     const to = range.to.getTime();
     const readings: Reading[] = [];
-    for (const occ of OCCURRENCES) {
-      const t = new Date(occ.iso).getTime();
-      if (t >= from && t < to)
+    for (const occ of OCCURRENCES)
+      if (occ.ms >= from && occ.ms < to)
         readings.push({
-          timestamp: new Date(occ.iso).toISOString(),
+          timestamp: occ.timestamp,
           values: { [occ.field]: 1 },
         });
-    }
     return readings;
   },
 };
