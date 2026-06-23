@@ -229,6 +229,12 @@ describe('AdaptorRegistry', () => {
     ).rejects.toThrow();
   });
 
+  it('adaptorDef() returns the def for a provided type, null for unknown', () => {
+    const reg = new AdaptorRegistry().provide(makeAdaptor());
+    expect(reg.adaptorDef('test')).toEqual(def);
+    expect(reg.adaptorDef('ghost')).toBeNull();
+  });
+
   it('catalog() lists all provided adaptor types with id/name/def', () => {
     const reg = new AdaptorRegistry().provide(makeAdaptor());
     const catalog = reg.catalog();

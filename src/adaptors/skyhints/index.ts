@@ -43,23 +43,33 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 // All event occurrences across the bundled data, computed once. Each retrograde
 // uses the period's `retrograde` start as its event timestamp. The ISO string is
 // parsed here (ms epoch + normalized timestamp) so fetch is a pure range filter.
-type Occurrence = { field: string; ms: number; timestamp: string };
-const OCCURRENCES: Occurrence[] = (() => {
+export type Occurrence = { field: string; ms: number; timestamp: string };
+
+export function buildOccurrences(
+  moon: EventRecord[],
+  earth: EventRecord[],
+  retro: Record<string, EventRecord[]>,
+): Occurrence[] {
   const out: Occurrence[] = [];
   const add = (field: string, iso: string) => {
     const date = new Date(iso);
     out.push({ field, ms: date.getTime(), timestamp: date.toISOString() });
   };
-  for (const cycle of moonData as EventRecord[])
+  for (const cycle of moon)
     for (const m of MOON_FIELDS) if (cycle[m.key]) add(m.field, cycle[m.key]);
-  for (const year of earthData as EventRecord[])
+  for (const year of earth)
     for (const s of SEASON_FIELDS) if (year[s.key]) add(s.field, year[s.key]);
-  const retro = retrogradeData as Record<string, EventRecord[]>;
   for (const planet of PLANETS)
     for (const period of retro[planet] ?? [])
       if (period.retrograde) add(`${planet}_retrograde`, period.retrograde);
   return out;
-})();
+}
+
+const OCCURRENCES: Occurrence[] = buildOccurrences(
+  moonData as EventRecord[],
+  earthData as EventRecord[],
+  retrogradeData as Record<string, EventRecord[]>,
+);
 
 // Static read fields (one per event type), derived from the same tables so they
 // can never drift from what `fetch` emits.

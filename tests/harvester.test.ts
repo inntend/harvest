@@ -188,6 +188,23 @@ describe('Harvester.refetch', () => {
   });
 });
 
+describe('Harvester catalog lookups', () => {
+  it('adaptorDef returns the def for a provided adaptor, null otherwise', () => {
+    const store = makeStore([]);
+    const a = adaptor();
+    const h = harvester(store).provide(a);
+    expect(h.adaptorDef('test')).toEqual(a.def);
+    expect(h.adaptorDef('ghost')).toBeNull();
+  });
+
+  it('adaptors lists every provided adaptor type', () => {
+    const store = makeStore([]);
+    const a = adaptor();
+    const h = harvester(store).provide(a);
+    expect(h.adaptors()).toEqual([{ id: 'test', name: 'Test', def: a.def }]);
+  });
+});
+
 describe('Harvester.write', () => {
   const writableAdaptor = (send = vi.fn()): Adaptor<typeof config.shape> => ({
     id: 'test',
@@ -315,6 +332,20 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     expect(store.commitCoverage).toHaveBeenCalledOnce();
   });
 
+  it('treats missing parameter history as no segments but still covers the gap', async () => {
+    const store = makeStore([dynSpec()]);
+    // parameterHistory present (so the segmented path runs) but returns nothing.
+    store.parameterHistory = vi.fn(
+      async () => undefined as unknown as ParameterPoint[],
+    );
+    const h = harvester(store).provide(dynAdaptor());
+    await h.load();
+    await h.fetchRange('gps', FROM, TO);
+
+    expect(store.writeSeries).toHaveBeenCalledWith('gps', []);
+    expect(store.commitCoverage).toHaveBeenCalledOnce();
+  });
+
   it('does not segment a connector without inputs (fixed path)', async () => {
     const store = makeStore([spec()]);
     const h = harvester(store).provide(adaptor());
@@ -381,6 +412,18 @@ describe('segmentByParameters', () => {
     ]);
     expect(segs).toEqual([
       { from: FROM_S, to: MID_S, config: {} },
+      { from: MID_S, to: TO_S, config: { latitude: 42 } },
+    ]);
+  });
+
+  it('sorts history supplied out of chronological order', () => {
+    // Points given newest-first → exercises the sort comparator's reorder path.
+    const segs = segmentByParameters(FROM_S, TO_S, [
+      { reference: 'latitude', timestamp: MID_S, value: 42 },
+      { reference: 'latitude', timestamp: FROM_S, value: 52 },
+    ]);
+    expect(segs).toEqual([
+      { from: FROM_S, to: MID_S, config: { latitude: 52 } },
       { from: MID_S, to: TO_S, config: { latitude: 42 } },
     ]);
   });

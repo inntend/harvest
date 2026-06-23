@@ -30,6 +30,15 @@ function calledUrl(): string {
   return (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
 }
 
+function calledUrls(): string[] {
+  return (fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+    (c) => c[0] as string,
+  );
+}
+
+const isForecast = (url: string) => url.includes('/v1/forecast');
+const isArchive = (url: string) => url.includes('/v1/archive');
+
 describe('openMeteoAdaptor', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -89,6 +98,68 @@ describe('openMeteoAdaptor', () => {
     it('throws on a non-ok HTTP response', async () => {
       vi.stubGlobal('fetch', mockFetch({}, 429));
       await expect(openMeteoAdaptor.fetch(cfg, RANGE)).rejects.toThrow('429');
+    });
+  });
+
+  // The archive (ERA5) endpoint lags ~5 days; recent dates come from the forecast
+  // endpoint instead. The split is relative to "today", so time is pinned here.
+  describe('archive / forecast split', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-06-15T00:00:00Z')); // cutoff = 2024-06-10
+      vi.stubGlobal('fetch', mockFetch(DAILY_RESPONSE));
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('uses only the forecast endpoint for a range within the archive lag', async () => {
+      await openMeteoAdaptor.fetch(cfg, {
+        from: new Date('2024-06-12T00:00:00Z'),
+        to: new Date('2024-06-14T23:59:59Z'),
+      });
+      const urls = calledUrls();
+      expect(urls).toHaveLength(1);
+      expect(isForecast(urls[0])).toBe(true);
+      expect(urls[0]).toContain('start_date=2024-06-12');
+      expect(urls[0]).toContain('end_date=2024-06-14');
+    });
+
+    it('uses only the archive endpoint for a range older than the lag', async () => {
+      await openMeteoAdaptor.fetch(cfg, {
+        from: new Date('2024-06-01T00:00:00Z'),
+        to: new Date('2024-06-03T23:59:59Z'),
+      });
+      const urls = calledUrls();
+      expect(urls).toHaveLength(1);
+      expect(isArchive(urls[0])).toBe(true);
+      expect(urls[0]).toContain('start_date=2024-06-01');
+      expect(urls[0]).toContain('end_date=2024-06-03');
+    });
+
+    it('splits a range spanning the cutoff across both endpoints', async () => {
+      await openMeteoAdaptor.fetch(cfg, {
+        from: new Date('2024-06-08T00:00:00Z'),
+        to: new Date('2024-06-14T23:59:59Z'),
+      });
+      const urls = calledUrls();
+      expect(urls).toHaveLength(2);
+
+      const archive = urls.find(isArchive);
+      const forecast = urls.find(isForecast);
+      // Archive covers up to and including the cutoff day...
+      expect(archive).toContain('start_date=2024-06-08');
+      expect(archive).toContain('end_date=2024-06-10');
+      // ...and the forecast picks up the day after, with no overlap.
+      expect(forecast).toContain('start_date=2024-06-11');
+      expect(forecast).toContain('end_date=2024-06-14');
+    });
+
+    it('merges readings from both endpoints into one list', async () => {
+      const readings = await openMeteoAdaptor.fetch(cfg, {
+        from: new Date('2024-06-08T00:00:00Z'),
+        to: new Date('2024-06-14T23:59:59Z'),
+      });
+      // Both endpoints return the 3-day mock, so the flattened result is 6.
+      expect(readings).toHaveLength(6);
     });
   });
 });

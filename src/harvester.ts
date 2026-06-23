@@ -142,7 +142,6 @@ export class Harvester {
       to.toISOString(),
       covered,
     );
-    const inputs = this.#inputs.get(connectorId);
     for (const gap of gaps) {
       const claimed = await this.#store.claim(
         connectorId,
@@ -152,6 +151,9 @@ export class Harvester {
       );
       if (!claimed) continue;
       try {
+        // Connectors with dynamic inputs (e.g. GPS) segment the gap by input
+        // history; fixed connectors fetch the whole gap in one call.
+        const inputs = this.#inputs.get(connectorId);
         const entries =
           inputs?.length && this.#store.parameterHistory
             ? await this.#fetchSegmented(connectorId, gap, inputs)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { skyhintsAdaptor } from '../src/adaptors/skyhints';
+import { buildOccurrences, skyhintsAdaptor } from '../src/adaptors/skyhints';
 import type { Reading } from '../src/types';
 
 // January 2022 — a window with known almanac events from the bundled data:
@@ -112,6 +112,46 @@ describe('skyhintsAdaptor', () => {
       expect(equinox?.timestamp).toBe(
         new Date('2022-03-20T15:33:24.904529+00:00').toISOString(),
       );
+    });
+  });
+
+  describe('buildOccurrences', () => {
+    it('maps moon, season, and retrograde keys to field occurrences', () => {
+      const occ = buildOccurrences(
+        [{ new: '2022-01-02T18:33:30Z', full: '2022-01-17T23:48:26Z' }],
+        [{ vernal: '2022-03-20T15:33:24Z' }],
+        { mercury: [{ retrograde: '2022-01-14T11:41:17Z' }] },
+      );
+      expect(occ.map((o) => o.field).sort()).toEqual([
+        'full_moon',
+        'mercury_retrograde',
+        'new_moon',
+        'spring_equinox',
+      ]);
+      const newMoon = occ.find((o) => o.field === 'new_moon');
+      expect(newMoon?.timestamp).toBe(
+        new Date('2022-01-02T18:33:30Z').toISOString(),
+      );
+      expect(newMoon?.ms).toBe(new Date('2022-01-02T18:33:30Z').getTime());
+    });
+
+    it('skips absent keys, planets, and periods without a retrograde date', () => {
+      const occ = buildOccurrences(
+        // Cycle missing the `full` key → only new_moon is emitted.
+        [{ new: '2022-01-02T18:33:30Z' }],
+        // Year missing every season key → no seasonal occurrences.
+        [{}],
+        {
+          // mars absent from the map → exercises the `?? []` fallback.
+          // venus present but its only period lacks a `retrograde` date.
+          venus: [{ shadow: '2022-01-01T00:00:00Z' }],
+        },
+      );
+      expect(occ.map((o) => o.field)).toEqual(['new_moon']);
+    });
+
+    it('returns nothing for entirely empty inputs', () => {
+      expect(buildOccurrences([], [], {})).toEqual([]);
     });
   });
 });

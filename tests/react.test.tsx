@@ -154,6 +154,9 @@ describe('HarvesterProvider', () => {
       await result.current.reload();
     });
     expect(store.writeSeries).not.toHaveBeenCalled();
+    // Catalog lookups fall back gracefully with no harvester behind them.
+    expect(result.current.adaptorDef('test')).toBeNull();
+    expect(result.current.listAdaptors()).toEqual([]);
   });
 
   it('defaults to including built-in adaptors', async () => {
@@ -192,6 +195,64 @@ describe('HarvesterProvider', () => {
     });
     // No state update leaked through after unmount.
     expect(result.current.ready).toBe(false);
+  });
+
+  it('refetch resets then refills the range', async () => {
+    const store = makeStore([spec()]);
+    const { result } = renderHook(() => useHarvester(), {
+      wrapper: wrapper(store),
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      await result.current.refetch('c1', FROM, TO);
+    });
+    expect(store.reset).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      TO.toISOString(),
+    );
+    expect(store.writeSeries).toHaveBeenCalledOnce();
+  });
+
+  it('markRefetching ref-counts the pending state per connector', async () => {
+    const store = makeStore([spec()]);
+    const { result } = renderHook(() => useHarvester(), {
+      wrapper: wrapper(store),
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    let release1!: () => void;
+    let release2!: () => void;
+    act(() => {
+      release1 = result.current.markRefetching('c1');
+    });
+    expect(result.current.refetching.c1).toBe(true);
+
+    // A second mark keeps it pending after the first releases (ref-counted).
+    act(() => {
+      release2 = result.current.markRefetching('c1');
+    });
+    act(() => release1());
+    expect(result.current.refetching.c1).toBe(true);
+
+    // Only the last release clears the flag.
+    act(() => release2());
+    expect(result.current.refetching.c1).toBeUndefined();
+  });
+
+  it('adaptorDef and listAdaptors expose the registered catalog', async () => {
+    const store = makeStore([spec()]);
+    const { result } = renderHook(() => useHarvester(), {
+      wrapper: wrapper(store),
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    expect(result.current.adaptorDef('test')).toEqual(adaptor().def);
+    expect(result.current.adaptorDef('ghost')).toBeNull();
+    expect(result.current.listAdaptors()).toEqual([
+      { id: 'test', name: 'Test', def: adaptor().def },
+    ]);
   });
 });
 

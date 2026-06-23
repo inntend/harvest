@@ -39,6 +39,12 @@ export type HarvesterContextValue = {
   fetchRange: (connectorId: string, from: Date, to: Date) => Promise<void>;
   // Force a re-fetch of [from, to): clear its coverage/claims/series, then fetch.
   refetch: (connectorId: string, from: Date, to: Date) => Promise<void>;
+  // Connector ids with an in-flight re-fetch, so data views can show a pending
+  // state. Driven by markRefetching (not demand-pull, which has its own loading).
+  refetching: Record<string, boolean>;
+  // Flag a connector as actively re-fetching; returns a release fn. Ref-counted
+  // so overlapping/chunked re-fetches stay marked until the last one releases.
+  markRefetching: (connectorId: string) => () => void;
   // Manual write-back: push values out via the connector's adaptor.send().
   write: (connectorId: string, inputs: WriteInput[]) => Promise<void>;
   // Re-read connector configs (e.g. after new connectors arrive).
@@ -134,6 +140,25 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
     [],
   );
 
+  const [refetching, setRefetching] = useState<Record<string, boolean>>({});
+  const refetchCounts = useRef<Record<string, number>>({});
+
+  const markRefetching = useCallback((connectorId: string) => {
+    const counts = refetchCounts.current;
+    counts[connectorId] = (counts[connectorId] ?? 0) + 1;
+    if (counts[connectorId] === 1)
+      setRefetching((prev) => ({ ...prev, [connectorId]: true }));
+    return () => {
+      counts[connectorId] -= 1;
+      if (counts[connectorId] === 0)
+        setRefetching((prev) => {
+          const next = { ...prev };
+          delete next[connectorId];
+          return next;
+        });
+    };
+  }, []);
+
   const write = useCallback(
     async (connectorId: string, inputs: WriteInput[]) => {
       await harvesterRef.current?.write(connectorId, inputs);
@@ -165,6 +190,8 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       connectorIds,
       fetchRange,
       refetch,
+      refetching,
+      markRefetching,
       write,
       reload,
       health,
@@ -176,6 +203,8 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       connectorIds,
       fetchRange,
       refetch,
+      refetching,
+      markRefetching,
       write,
       reload,
       health,
