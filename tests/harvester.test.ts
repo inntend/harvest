@@ -188,6 +188,44 @@ describe('Harvester.fetchRange', () => {
     await h.fetchRange('c1', FROM, TO);
     expect(events).toEqual([]);
   });
+
+  it('emits pending once across overlapping fetches (ref-counted)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const store = makeStore([spec()]);
+    const events: [string, boolean][] = [];
+    const h = harvester(store)
+      .provide(
+        adaptor(async (_cfg, range) => {
+          await gate; // hold both fetches in flight at once
+          return [{ timestamp: range.to.toISOString(), values: { value: 1 } }];
+        }),
+      )
+      .onPending((id, active) => events.push([id, active]));
+    await h.load();
+
+    // Two distinct ranges → two gaps fetched concurrently on the same connector.
+    const FROM2 = new Date('2024-02-01T00:00:00Z');
+    const TO2 = new Date('2024-02-02T00:00:00Z');
+    const p1 = h.fetchRange('c1', FROM, TO);
+    const p2 = h.fetchRange('c1', FROM2, TO2);
+
+    // Let both reach the gated fetch: the count climbs to 2 but only the 0→1
+    // transition emits.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(events).toEqual([['c1', true]]);
+
+    release();
+    await Promise.all([p1, p2]);
+
+    // Only the last fetch settling (1→0) emits the false; no churn at 2↔1.
+    expect(events).toEqual([
+      ['c1', true],
+      ['c1', false],
+    ]);
+  });
 });
 
 describe('Harvester.refetch', () => {

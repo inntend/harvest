@@ -144,7 +144,10 @@ async function fetchDaily(
   const dayAfterCutoffStr = isoDate(new Date(cutoff.getTime() + 86_400_000));
 
   const fromStr = isoDate(range.from);
-  const toStr = isoDate(range.to);
+  // `range.to` is exclusive (callers use half-open [from, to)), but open-meteo's
+  // end_date is inclusive — map to the calendar day of the last instant before
+  // `to` so a midnight boundary doesn't pull in (and re-fetch) the next day.
+  const toStr = isoDate(new Date(range.to.getTime() - 1));
 
   const fetches: Promise<Reading[]>[] = [];
 

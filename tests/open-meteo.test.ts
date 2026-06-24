@@ -90,6 +90,18 @@ describe('openMeteoAdaptor', () => {
       expect(readings[0].values.precipitation_sum).toBe(1.5);
     });
 
+    it('treats the range end as exclusive, not fetching the to-day', async () => {
+      // Half-open [Jan 1 00:00, Jan 2 00:00) is just Jan 1 — end_date must be
+      // Jan 1, not Jan 2 (which would re-fetch the next gap's first day).
+      await openMeteoAdaptor.fetch(cfg, {
+        from: new Date('2024-01-01T00:00:00Z'),
+        to: new Date('2024-01-02T00:00:00Z'),
+      });
+      const url = calledUrl();
+      expect(url).toContain('start_date=2024-01-01');
+      expect(url).toContain('end_date=2024-01-01');
+    });
+
     it('returns an empty array when daily data is absent', async () => {
       vi.stubGlobal('fetch', mockFetch({}));
       expect(await openMeteoAdaptor.fetch(cfg, RANGE)).toEqual([]);
