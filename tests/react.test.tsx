@@ -215,30 +215,36 @@ describe('HarvesterProvider', () => {
     expect(store.writeSeries).toHaveBeenCalledOnce();
   });
 
-  it('markRefetching ref-counts the pending state per connector', async () => {
+  it('reflects pending while a connector is actively fetching a gap', async () => {
+    let resolveFetch!: (
+      v: { timestamp: string; values: { value: number } }[],
+    ) => void;
+    const gate = new Promise<
+      { timestamp: string; values: { value: number } }[]
+    >((res) => {
+      resolveFetch = res;
+    });
+    const slow: Adaptor<typeof config.shape> = {
+      ...adaptor(),
+      fetch: () => gate,
+    };
     const store = makeStore([spec()]);
     const { result } = renderHook(() => useHarvester(), {
-      wrapper: wrapper(store),
+      wrapper: wrapper(store, { adaptors: [slow] }),
     });
     await waitFor(() => expect(result.current.ready).toBe(true));
 
-    let release1!: () => void;
-    let release2!: () => void;
+    let done!: Promise<void>;
     act(() => {
-      release1 = result.current.markRefetching('c1');
+      done = result.current.fetchRange('c1', FROM, TO);
     });
-    expect(result.current.refetching.c1).toBe(true);
+    await waitFor(() => expect(result.current.pending.c1).toBe(true));
 
-    // A second mark keeps it pending after the first releases (ref-counted).
-    act(() => {
-      release2 = result.current.markRefetching('c1');
+    await act(async () => {
+      resolveFetch([{ timestamp: TO.toISOString(), values: { value: 42 } }]);
+      await done;
     });
-    act(() => release1());
-    expect(result.current.refetching.c1).toBe(true);
-
-    // Only the last release clears the flag.
-    act(() => release2());
-    expect(result.current.refetching.c1).toBeUndefined();
+    expect(result.current.pending.c1).toBeUndefined();
   });
 
   it('adaptorDef and listAdaptors expose the registered catalog', async () => {

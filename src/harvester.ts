@@ -83,6 +83,13 @@ export class Harvester {
   readonly #registry: AdaptorRegistry;
   readonly #deviceId: string;
   readonly #errorHandlers: ((event: ErrorEvent) => void | Promise<void>)[] = [];
+  // Subscribers notified when a connector starts/stops actively fetching, plus a
+  // per-connector in-flight count so we emit only on the 0↔1 transitions.
+  readonly #pendingHandlers: ((
+    connectorId: string,
+    active: boolean,
+  ) => void)[] = [];
+  readonly #pending = new Map<string, number>();
   // connectorId -> config keys driven by a measurement history (from spec.inputs).
   readonly #inputs = new Map<string, string[]>();
 
@@ -102,6 +109,14 @@ export class Harvester {
 
   onError(handler: (event: ErrorEvent) => void | Promise<void>): this {
     this.#errorHandlers.push(handler);
+    return this;
+  }
+
+  // Subscribe to fetch activity: `active` flips true when a connector starts
+  // fetching a gap and false when its last in-flight fetch settles. Lets a host
+  // show a pending/skeleton state for exactly the connectors being fetched.
+  onPending(handler: (connectorId: string, active: boolean) => void): this {
+    this.#pendingHandlers.push(handler);
     return this;
   }
 
@@ -150,6 +165,7 @@ export class Harvester {
         this.#deviceId,
       );
       if (!claimed) continue;
+      this.#markPending(connectorId, 1);
       try {
         // Connectors with dynamic inputs (e.g. GPS) segment the gap by input
         // history; fixed connectors fetch the whole gap in one call.
@@ -166,6 +182,8 @@ export class Harvester {
       } catch {
         // The registry already emitted onError for the failed attempts. Leave the
         // claim to expire so a later request retries this gap (self-heal).
+      } finally {
+        this.#markPending(connectorId, -1);
       }
     }
   }
@@ -228,6 +246,16 @@ export class Harvester {
 
   async #emitError(event: ErrorEvent): Promise<void> {
     await Promise.all(this.#errorHandlers.map((h) => h(event)));
+  }
+
+  // Track in-flight fetches per connector, emitting only on 0↔1 transitions so
+  // overlapping gaps/ranges stay pending until the last one settles.
+  #markPending(connectorId: string, delta: 1 | -1): void {
+    const count = (this.#pending.get(connectorId) ?? 0) + delta;
+    this.#pending.set(connectorId, count);
+    if ((delta === 1 && count === 1) || (delta === -1 && count === 0))
+      for (const handler of this.#pendingHandlers)
+        handler(connectorId, count > 0);
   }
 }
 

@@ -161,6 +161,33 @@ describe('Harvester.fetchRange', () => {
     await h.fetchRange('c1', FROM, TO);
     expect(store.writeSeries).toHaveBeenCalledOnce();
   });
+
+  it('emits pending true then false while fetching an uncovered range', async () => {
+    const store = makeStore([spec()]);
+    const events: [string, boolean][] = [];
+    const h = harvester(store)
+      .provide(adaptor())
+      .onPending((id, active) => events.push([id, active]));
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(events).toEqual([
+      ['c1', true],
+      ['c1', false],
+    ]);
+  });
+
+  it('emits no pending events when the range is fully covered', async () => {
+    const store = makeStore([spec()], {
+      c1: [{ from: FROM.toISOString(), to: TO.toISOString() }],
+    });
+    const events: [string, boolean][] = [];
+    const h = harvester(store)
+      .provide(adaptor())
+      .onPending((id, active) => events.push([id, active]));
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(events).toEqual([]);
+  });
 });
 
 describe('Harvester.refetch', () => {
