@@ -2,13 +2,18 @@
   "name": "@inntend/harvest",
   "version": "0.0.0",
   "type": "module",
-  "description": "Plugin-based adaptor scheduler — pull and push data on a cron schedule",
+  "description": "Plugin-based connector runtime — pull and push external data on demand",
   "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
     }
   },
   "main": "./dist/index.js",
@@ -20,31 +25,39 @@
     "npm": "=10.x",
     "node": "=24.x"
   },
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "build": "tsup",
     "build:check": "tsc --noEmit",
-    "dev": "tsx watch src/index.ts",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:coverage": "vitest run --project unit --coverage",
     "check": "biome check --write",
     "check:ci": "biome ci",
-    "validate": "pnpm run check && pnpm run build:check && pnpm run test:coverage",
-    "example": "tsx examples/basic.ts"
+    "validate": "pnpm run check && pnpm run build:check && pnpm run test:coverage"
   },
   "dependencies": {
-    "@inntend/convert": "0.0.4",
-    "croner": "^10.0.1"
+    "@inntend/convert": "0.0.5"
   },
   "peerDependencies": {
+    "react": ">=18",
     "zod": "4.x"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.17",
     "@vitest/coverage-v8": "^4.1.9",
+    "react": "^19.2.7",
+    "react-dom": "19.2.7",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
+    "vite": "^8.0.16",
     "vitest": "^4.1.9",
     "zod": "^4.4.3"
   }

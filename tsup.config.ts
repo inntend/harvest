@@ -1,13 +1,13 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: { index: 'src/index.ts', react: 'src/react.ts' },
   format: ['esm'],
   target: 'es2022',
   dts: true,
   sourcemap: true,
   clean: true,
   treeshake: true,
-  // big.js is a runtime dependency — keep it external so it isn't bundled in.
-  external: ['big.js'],
+  // Keep these external so they aren't bundled in (react is an optional peer).
+  external: ['big.js', 'react'],
 });

@@ -1,5 +1,8 @@
 allowBuilds:
   esbuild: false
 minimumReleaseAgeExclude:
-  - '@inntend/convert@0.0.3'
-  - '@inntend/convert@0.0.4'
+  - '@inntend/convert@0.0.5'
+  - vite@8.0.16
+  - esbuild@0.28.1
+overrides:
+  esbuild@>=0.27.3 <0.28.1: ^0.28.1

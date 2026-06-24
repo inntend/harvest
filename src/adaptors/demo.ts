@@ -22,7 +22,6 @@ const config = z.object({
 export const demoAdaptor: Adaptor<typeof config.shape> = {
   id: 'demo',
   name: 'Demo Battery',
-  schedule: '*/10 * * * * *',
   config,
 
   def: {
@@ -43,16 +42,22 @@ export const demoAdaptor: Adaptor<typeof config.shape> = {
     },
   },
 
-  async fetch(cfg) {
+  async fetch(cfg, range) {
     const maxCharge = cfg['charging.max'] / 1000; // W → kW
     const maxDischarge = cfg['discharging.max'] / 1000;
     const soc = Math.round(Math.random() * 100);
-    return {
-      soc,
-      chargePower: soc < 90 ? +(Math.random() * maxCharge).toFixed(2) : 0,
-      dischargePower: soc > 20 ? +(Math.random() * maxDischarge).toFixed(2) : 0,
-      voltage: +(48 + Math.random() * 8).toFixed(2),
-    };
+    return [
+      {
+        timestamp: range.to.toISOString(),
+        values: {
+          soc,
+          chargePower: soc < 90 ? +(Math.random() * maxCharge).toFixed(2) : 0,
+          dischargePower:
+            soc > 20 ? +(Math.random() * maxDischarge).toFixed(2) : 0,
+          voltage: +(48 + Math.random() * 8).toFixed(2),
+        },
+      },
+    ];
   },
 
   async send(_cfg, values) {

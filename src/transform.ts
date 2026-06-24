@@ -46,21 +46,29 @@ export class Transform {
     }
   }
 
-  async measurements(
+  measurements(
     values: Record<string, Record<string, Convert | number>>,
-  ): Promise<SeriesEntry[]> {
+  ): SeriesEntry[] {
     const result: SeriesEntry[] = [];
 
-    for (const componentId in this.#measurements) {
-      for (const timestamp in values) {
-        const raw = values[timestamp];
-        const validationData: Record<string, number> = {};
-        for (const ref in raw) {
-          const v = raw[ref];
-          validationData[ref] = typeof v === 'number' ? v : v.value();
-        }
-        this.#schemas[componentId].parse(validationData);
+    // Numeric view of each timestamp's values (Convert -> number), built once and
+    // reused for every component's validation below — it's component-independent.
+    const numericByTimestamp: Record<string, Record<string, number>> = {};
+    for (const timestamp in values) {
+      const raw = values[timestamp];
+      const numeric: Record<string, number> = {};
+      for (const ref in raw) {
+        const v = raw[ref];
+        numeric[ref] = typeof v === 'number' ? v : v.value();
       }
+      numericByTimestamp[timestamp] = numeric;
+    }
+
+    for (const componentId in this.#measurements) {
+      // Bounds can differ per component (property overrides), so validate every
+      // timestamp against this component's own schema.
+      for (const timestamp in values)
+        this.#schemas[componentId].parse(numericByTimestamp[timestamp]);
 
       for (const m of this.#measurements[componentId]) {
         for (const timestamp in values) {

@@ -12,7 +12,28 @@ export type {
   SeriesEntry,
 } from './definition';
 export { SchemaError } from './definition';
-export { AdaptorScheduler } from './scheduler';
+export type {
+  ConnectorSpec,
+  ConnectorStore,
+  HarvesterOptions,
+  Interval,
+  ParameterPoint,
+  Segment,
+} from './harvester';
+export {
+  Harvester,
+  segmentByParameters,
+  subtractIntervals,
+} from './harvester';
+export type {
+  AdaptorInfo,
+  ConfigureInput,
+  ErrorEvent,
+  RetryOptions,
+  WriteInput,
+} from './registry';
+export { AdaptorRegistry } from './registry';
 export { Schema } from './schema';
 export { Transform } from './transform';
-export type { Adaptor, AnyAdaptor, DataEvent } from './types';
+export type { Adaptor, AnyAdaptor, Range, Reading } from './types';
+export { UnknownAdaptorError } from './types';
