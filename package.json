@@ -60,5 +60,13 @@
     "vite": "^8.1.0",
     "vitest": "^4.1.9",
     "zod": "^4.4.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inntend/harvest.git"
+  },
+  "bugs": {
+    "url": "https://github.com/inntend/harvest/issues"
+  },
+  "homepage": "https://github.com/inntend/harvest/"
 }
