@@ -1,4 +1,4 @@
-import type { Component, SeriesEntry } from './definition';
+import type { Component } from './definition';
 import {
   type AdaptorInfo,
   AdaptorRegistry,
@@ -6,7 +6,7 @@ import {
   type RetryOptions,
   type WriteInput,
 } from './registry';
-import type { AnyAdaptor } from './types';
+import type { AnyAdaptor, Reading } from './types';
 
 // What the store hands the Harvester per connector. The host maps its own
 // (encrypted) records onto this — Harvest stays storage-agnostic.
@@ -54,9 +54,13 @@ export interface ConnectorStore {
     deviceId: string,
   ): Promise<boolean>;
   commitCoverage(connectorId: string, from: string, to: string): Promise<void>;
-  writeSeries(connectorId: string, entries: SeriesEntry[]): Promise<void>;
-  // Clear coverage, claims and connector-sourced series for [from, to) so the
-  // range can be fetched fresh — backs Harvester.refetch().
+  // Merge the fetched native-unit read fields into the connector's wide rows
+  // (one row per timestamp). A merge — never a whole-row replace — so user
+  // recorded input fields on the same row survive a re-fetch.
+  writeReadings(connectorId: string, readings: Reading[]): Promise<void>;
+  // Clear coverage, claims and the connector's read fields for [from, to) so the
+  // range can be fetched fresh — backs Harvester.refetch(). User-recorded input
+  // fields are left intact (a re-fetch only overwrites read fields).
   reset(connectorId: string, from: string, to: string): Promise<void>;
   // History of a connector's input parameters over [from, to), including the
   // last value at or before `from` per reference (carry-in) so the first
@@ -170,14 +174,14 @@ export class Harvester {
         // Connectors with dynamic inputs (e.g. GPS) segment the gap by input
         // history; fixed connectors fetch the whole gap in one call.
         const inputs = this.#inputs.get(connectorId);
-        const entries =
+        const readings =
           inputs?.length && this.#store.parameterHistory
             ? await this.#fetchSegmented(connectorId, gap, inputs)
-            : await this.#registry.fetch(connectorId, {
+            : await this.#registry.fetchReadings(connectorId, {
                 from: new Date(gap.from),
                 to: new Date(gap.to),
               });
-        await this.#store.writeSeries(connectorId, entries);
+        await this.#store.writeReadings(connectorId, readings);
         await this.#store.commitCoverage(connectorId, gap.from, gap.to);
       } catch {
         // The registry already emitted onError for the failed attempts. Leave the
@@ -197,27 +201,27 @@ export class Harvester {
     connectorId: string,
     gap: Interval,
     inputs: string[],
-  ): Promise<SeriesEntry[]> {
+  ): Promise<Reading[]> {
     const points =
       (await this.#store.parameterHistory?.(connectorId, gap.from, gap.to)) ??
       [];
     const segments = segmentByParameters(gap.from, gap.to, points);
-    const entries: SeriesEntry[] = [];
+    const readings: Reading[] = [];
     for (const segment of segments) {
       const resolved = inputs.every((ref) => ref in segment.config);
       if (!resolved) continue;
-      const segEntries = await this.#registry.fetch(
+      const segReadings = await this.#registry.fetchReadings(
         connectorId,
         { from: new Date(segment.from), to: new Date(segment.to) },
         segment.config,
       );
-      entries.push(...segEntries);
+      readings.push(...segReadings);
     }
-    return entries;
+    return readings;
   }
 
-  // Force a re-fetch of [from, to): clear its coverage/claims/series for the
-  // connector, then fetch it again (writing fresh values).
+  // Force a re-fetch of [from, to): clear its coverage/claims/read fields for the
+  // connector, then fetch it again (writing fresh read values).
   async refetch(connectorId: string, from: Date, to: Date): Promise<void> {
     if (!this.#registry.has(connectorId)) return;
     await this.#store.reset(connectorId, from.toISOString(), to.toISOString());

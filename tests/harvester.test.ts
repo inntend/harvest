@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { SeriesEntry } from '../src/definition';
 import {
   type ConnectorSpec,
   type ConnectorStore,
@@ -10,7 +9,7 @@ import {
   segmentByParameters,
   subtractIntervals,
 } from '../src/harvester';
-import type { Adaptor } from '../src/types';
+import type { Adaptor, Reading } from '../src/types';
 
 const config = z.object({ host: z.string() });
 
@@ -62,7 +61,7 @@ function makeStore(
       return true;
     }),
     commitCoverage: vi.fn(async () => {}),
-    writeSeries: vi.fn(async (_id: string, _entries: SeriesEntry[]) => {}),
+    writeReadings: vi.fn(async (_id: string, _readings: Reading[]) => {}),
     reset: vi.fn(async () => {}),
     parameterHistory: vi.fn(async (id: string) => history[id] ?? []),
   };
@@ -76,16 +75,16 @@ const harvester = (store: ReturnType<typeof makeStore>) =>
   });
 
 describe('Harvester.fetchRange', () => {
-  it('fetches an uncovered range, writes series, commits coverage', async () => {
+  it('fetches an uncovered range, writes readings, commits coverage', async () => {
     const store = makeStore([spec()]);
     const h = harvester(store).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);
 
-    expect(store.writeSeries).toHaveBeenCalledOnce();
-    expect(store.writeSeries.mock.calls[0][1][0]).toMatchObject({
-      identifier: 'feed-1',
-      value: 42,
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+    expect(store.writeReadings.mock.calls[0][1][0]).toMatchObject({
+      timestamp: TO.toISOString(),
+      values: { value: 42 },
     });
     expect(store.commitCoverage).toHaveBeenCalledOnce();
   });
@@ -97,7 +96,7 @@ describe('Harvester.fetchRange', () => {
     const h = harvester(store).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);
-    expect(store.writeSeries).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
   });
 
   it('skips a gap claimed by another device', async () => {
@@ -106,7 +105,7 @@ describe('Harvester.fetchRange', () => {
     const h = harvester(store).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);
-    expect(store.writeSeries).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
   });
 
   it('does not configure disabled connectors', async () => {
@@ -114,7 +113,7 @@ describe('Harvester.fetchRange', () => {
     const h = harvester(store).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);
-    expect(store.writeSeries).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
   });
 
   it('exposes the ids of loaded connectors', async () => {
@@ -159,7 +158,7 @@ describe('Harvester.fetchRange', () => {
     }).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);
-    expect(store.writeSeries).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
   });
 
   it('emits pending true then false while fetching an uncovered range', async () => {
@@ -240,7 +239,7 @@ describe('Harvester.refetch', () => {
       FROM.toISOString(),
       TO.toISOString(),
     );
-    expect(store.writeSeries).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
     expect(store.commitCoverage).toHaveBeenCalledOnce();
   });
 
@@ -362,15 +361,12 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     await h.load();
     await h.fetchRange('gps', FROM, TO);
 
-    // Two segments → both written in one commit/writeSeries for the gap.
+    // Two segments → both written in one commit/writeReadings for the gap.
     expect(store.commitCoverage).toHaveBeenCalledOnce();
-    expect(store.writeSeries).toHaveBeenCalledOnce();
-    const entries = store.writeSeries.mock.calls[0][1];
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+    const readings = store.writeReadings.mock.calls[0][1];
     // Segment 1 (Berlin) lat=52, Segment 2 (Boston) lat=42.
-    const lats = entries
-      .filter((e) => e.identifier === 'feed-lat')
-      .map((e) => e.value)
-      .sort((a, b) => a - b);
+    const lats = readings.map((r) => r.values.lat).sort((a, b) => a - b);
     expect(lats).toEqual([42, 52]);
   });
 
@@ -392,8 +388,10 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     await h.load();
     await h.fetchRange('gps', FROM, TO);
 
-    const entries = store.writeSeries.mock.calls[0][1];
-    expect(entries.filter((e) => e.identifier === 'feed-lat')).toHaveLength(1);
+    const readings = store.writeReadings.mock.calls[0][1];
+    // One resolved segment → one reading written (its values carry lat/lng).
+    expect(readings).toHaveLength(1);
+    expect(readings[0].values).toMatchObject({ lat: 42, lng: -71 });
     expect(store.commitCoverage).toHaveBeenCalledOnce();
   });
 
@@ -407,7 +405,7 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     await h.load();
     await h.fetchRange('gps', FROM, TO);
 
-    expect(store.writeSeries).toHaveBeenCalledWith('gps', []);
+    expect(store.writeReadings).toHaveBeenCalledWith('gps', []);
     expect(store.commitCoverage).toHaveBeenCalledOnce();
   });
 

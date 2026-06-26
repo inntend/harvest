@@ -25,7 +25,7 @@
     "npm": "=10.x",
     "node": "=24.x"
   },
-  "packageManager": "pnpm@11.8.0",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "tsup",
     "build:check": "tsc --noEmit",
@@ -37,7 +37,7 @@
     "validate": "pnpm run check && pnpm run build:check && pnpm run test:coverage"
   },
   "dependencies": {
-    "@inntend/convert": "0.0.5"
+    "@inntend/convert": "0.0.6"
   },
   "peerDependencies": {
     "react": ">=18",

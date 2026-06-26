@@ -95,6 +95,33 @@ describe('AdaptorRegistry', () => {
     expect(entries.map((e) => e.value)).toEqual([1, 2]);
   });
 
+  it('fetchReadings returns native-unit readings, stripping undeclared keys', async () => {
+    const reg = new AdaptorRegistry();
+    const fetchFn = async (): Promise<Reading[]> => [
+      {
+        timestamp: '2024-01-01T00:00:00.000Z',
+        values: { value: 30, extra: 99 },
+      },
+    ];
+    configure(reg, makeAdaptor(fetchFn), { host: 'h', port: 1 }, 'c1');
+    const readings = await reg.fetchReadings('c1', RANGE);
+    expect(readings).toHaveLength(1);
+    // `value` is a declared read field (kept); `extra` is undeclared (stripped).
+    expect(readings[0]).toEqual({
+      timestamp: '2024-01-01T00:00:00.000Z',
+      values: { value: 30 },
+    });
+  });
+
+  it('fetchReadings validates readings against the read schema bounds', async () => {
+    const reg = new AdaptorRegistry();
+    const fetchFn = async (): Promise<Reading[]> => [
+      { timestamp: '2024-01-01T00:00:00.000Z', values: { value: 150 } },
+    ];
+    configure(reg, makeAdaptor(fetchFn), { host: 'h', port: 1 }, 'c1');
+    await expect(reg.fetchReadings('c1', RANGE)).rejects.toThrow();
+  });
+
   it('retries with backoff then succeeds', async () => {
     const fetch = vi
       .fn<Adaptor<typeof config.shape>['fetch']>()
