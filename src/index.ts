@@ -4,12 +4,9 @@ export { skyhintsAdaptor } from './adaptors/skyhints';
 export type {
   AdaptorDef,
   Bound,
-  Component,
   FieldDef,
-  MeasurementRef,
   PropertyDef,
   PropertyOverride,
-  SeriesEntry,
 } from './definition';
 export { SchemaError } from './definition';
 export type {
@@ -34,6 +31,5 @@ export type {
 } from './registry';
 export { AdaptorRegistry } from './registry';
 export { Schema } from './schema';
-export { Transform } from './transform';
 export type { Adaptor, AnyAdaptor, Range, Reading } from './types';
 export { UnknownAdaptorError } from './types';

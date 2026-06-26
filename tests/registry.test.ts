@@ -14,13 +14,6 @@ const def = {
   write: { target: { unit: '%', min: 0, max: 100 } },
 };
 
-const components = [
-  {
-    identifier: 'dev-1',
-    measurements: [{ reference: 'value', unit: '%', identifier: 'feed-1' }],
-  },
-];
-
 const RANGE = {
   from: new Date('2024-01-01T00:00:00Z'),
   to: new Date('2024-01-01T01:00:00Z'),
@@ -51,7 +44,6 @@ const configure = (
     id,
     adaptorId: adaptor.id,
     config: cfg,
-    components,
   });
 
 describe('AdaptorRegistry', () => {
@@ -71,28 +63,27 @@ describe('AdaptorRegistry', () => {
         id: 'c1',
         adaptorId: 'ghost',
         config: { host: 'h', port: 1 },
-        components,
       }),
     ).toThrow(UnknownAdaptorError);
   });
 
-  it('fetch returns SeriesEntry[] from readings', async () => {
+  it('fetchReadings returns the adaptor readings', async () => {
     const reg = new AdaptorRegistry();
     configure(reg, makeAdaptor(), { host: 'localhost', port: 502 }, 'c1');
-    const entries = await reg.fetch('c1', RANGE);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ identifier: 'feed-1', value: 42 });
+    const readings = await reg.fetchReadings('c1', RANGE);
+    expect(readings).toHaveLength(1);
+    expect(readings[0]).toMatchObject({ values: { value: 42 } });
   });
 
-  it('maps multiple readings to multiple entries', async () => {
+  it('maps multiple readings through unchanged', async () => {
     const reg = new AdaptorRegistry();
     const fetchFn = async (): Promise<Reading[]> => [
       { timestamp: '2024-01-01T00:00:00.000Z', values: { value: 1 } },
       { timestamp: '2024-01-01T01:00:00.000Z', values: { value: 2 } },
     ];
     configure(reg, makeAdaptor(fetchFn), { host: 'h', port: 1 }, 'c1');
-    const entries = await reg.fetch('c1', RANGE);
-    expect(entries.map((e) => e.value)).toEqual([1, 2]);
+    const readings = await reg.fetchReadings('c1', RANGE);
+    expect(readings.map((r) => r.values.value)).toEqual([1, 2]);
   });
 
   it('fetchReadings returns native-unit readings, stripping undeclared keys', async () => {
@@ -134,10 +125,10 @@ describe('AdaptorRegistry', () => {
     configure(reg, makeAdaptor(fetch), { host: 'h', port: 1 }, 'c1');
     reg.onError(onError);
 
-    const entries = await reg.fetch('c1', RANGE);
+    const readings = await reg.fetchReadings('c1', RANGE);
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(entries[0]).toMatchObject({ value: 7 });
+    expect(readings[0]).toMatchObject({ values: { value: 7 } });
     expect(onError).toHaveBeenCalledOnce();
     expect(onError.mock.calls[0][0]).toMatchObject({
       connectorId: 'c1',
@@ -159,7 +150,7 @@ describe('AdaptorRegistry', () => {
     );
     reg.onError(onError);
 
-    await expect(reg.fetch('c1', RANGE)).rejects.toThrow('down');
+    await expect(reg.fetchReadings('c1', RANGE)).rejects.toThrow('down');
     expect(onError).toHaveBeenCalledTimes(2);
     expect(onError.mock.calls[1][0]).toMatchObject({
       attempt: 2,
@@ -197,9 +188,9 @@ describe('AdaptorRegistry', () => {
     ).rejects.toThrow('does not support write');
   });
 
-  it('fetch/write throw for an unknown connector id', async () => {
+  it('fetchReadings/write throw for an unknown connector id', async () => {
     const reg = new AdaptorRegistry();
-    await expect(reg.fetch('ghost', RANGE)).rejects.toThrow(
+    await expect(reg.fetchReadings('ghost', RANGE)).rejects.toThrow(
       'Unknown connector: ghost',
     );
     await expect(reg.write('ghost', [])).rejects.toThrow(
@@ -207,7 +198,7 @@ describe('AdaptorRegistry', () => {
     );
   });
 
-  it('fetch applies a config override, re-validating the resolved config', async () => {
+  it('fetchReadings applies a config override, re-validating the resolved config', async () => {
     const geoConfig = z.object({
       latitude: z.number().min(-90).max(90),
       longitude: z.number().min(-180).max(180),
@@ -235,24 +226,18 @@ describe('AdaptorRegistry', () => {
       id: 'c1',
       adaptorId: 'geo',
       config: {},
-      components: [
-        {
-          identifier: 'c1',
-          measurements: [{ reference: 'lat', unit: 'deg', identifier: 'f' }],
-        },
-      ],
       inputs: ['latitude', 'longitude'],
     });
 
-    const entries = await reg.fetch('c1', RANGE, {
+    const readings = await reg.fetchReadings('c1', RANGE, {
       latitude: 42,
       longitude: -71,
     });
-    expect(entries[0]).toMatchObject({ identifier: 'f', value: 42 });
+    expect(readings[0]).toMatchObject({ values: { lat: 42 } });
 
     // An out-of-range override fails the per-fetch config.parse.
     await expect(
-      reg.fetch('c1', RANGE, { latitude: 999, longitude: 0 }),
+      reg.fetchReadings('c1', RANGE, { latitude: 999, longitude: 0 }),
     ).rejects.toThrow();
   });
 
@@ -277,13 +262,11 @@ describe('AdaptorRegistry', () => {
         id: 'home',
         adaptorId: 'test',
         config: { host: 'a', port: 1 },
-        components,
       })
       .configure({
         id: 'work',
         adaptorId: 'test',
         config: { host: 'b', port: 2 },
-        components,
       });
     expect(reg.has('home')).toBe(true);
     expect(reg.has('work')).toBe(true);

@@ -33,12 +33,6 @@ const spec = (over: Partial<ConnectorSpec> = {}): ConnectorSpec => ({
   id: 'c1',
   adaptorId: 'test',
   config: { host: 'h' },
-  components: [
-    {
-      identifier: 'c1',
-      measurements: [{ reference: 'value', unit: '%', identifier: 'feed-1' }],
-    },
-  ],
   ...over,
 });
 
@@ -331,15 +325,6 @@ describe('Harvester.fetchRange with dynamic inputs', () => {
     id: 'gps',
     adaptorId: 'dyn',
     config: {}, // no fixed coordinates; supplied per-segment from history
-    components: [
-      {
-        identifier: 'gps',
-        measurements: [
-          { reference: 'lat', unit: 'deg', identifier: 'feed-lat' },
-          { reference: 'lng', unit: 'deg', identifier: 'feed-lng' },
-        ],
-      },
-    ],
     inputs: ['latitude', 'longitude'],
   });
 

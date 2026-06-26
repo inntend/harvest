@@ -30,23 +30,4 @@ export type PropertyOverride = {
   value: number;
 };
 
-export type MeasurementRef = {
-  reference: string; // key in def.read
-  unit: string; // desired output unit
-  identifier: string; // SeriesEntry identifier
-};
-
-export type Component = {
-  identifier: string;
-  status?: 'ready' | 'disabled'; // defaults to 'ready'
-  properties?: PropertyOverride[];
-  measurements?: MeasurementRef[];
-};
-
-export type SeriesEntry = {
-  identifier: string;
-  timestamp: string;
-  value: number;
-};
-
 export class SchemaError extends Error {}

@@ -1,4 +1,3 @@
-import type { Component } from './definition';
 import {
   type AdaptorInfo,
   AdaptorRegistry,
@@ -9,13 +8,14 @@ import {
 import type { AnyAdaptor, Reading } from './types';
 
 // What the store hands the Harvester per connector. The host maps its own
-// (encrypted) records onto this — Harvest stays storage-agnostic.
+// (encrypted) records onto this — Harvest stays storage-agnostic. A fetch pulls
+// ALL of the adaptor's declared read fields (wide), so no per-field list is
+// needed; the host decides which fields to surface at read time.
 export type ConnectorSpec = {
   id: string;
   adaptorId: string;
   enabled?: boolean; // default true; disabled connectors are never invoked
   config: Record<string, unknown>; // -> adaptor.config.parse (bootstrap/credentials)
-  components: Component[]; // read feeds -> { reference, unit, identifier: feedId }
   // Config keys driven by a measurement history (e.g. ['latitude','longitude']).
   // Empty/absent ⇒ fixed connector (single fetch over the whole range).
   inputs?: string[];
@@ -136,7 +136,6 @@ export class Harvester {
           id: spec.id,
           adaptorId: spec.adaptorId,
           config: spec.config,
-          components: spec.components,
           inputs: spec.inputs,
         });
         if (spec.inputs?.length) this.#inputs.set(spec.id, spec.inputs);

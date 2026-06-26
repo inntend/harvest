@@ -1,7 +1,6 @@
 import { Convert, type UnitKey, type UnitsLibrary } from '@inntend/convert';
-import type { AdaptorDef, Component, SeriesEntry } from './definition';
+import type { AdaptorDef } from './definition';
 import { Schema } from './schema';
-import { Transform } from './transform';
 import {
   type AnyAdaptor,
   type Range,
@@ -31,7 +30,6 @@ export type ConfigureInput = {
   id: string; // connector id
   adaptorId: string; // adaptor type id, resolved from the catalog
   config: unknown; // validated via adaptor.config.parse
-  components: Component[];
   // Config keys supplied per-fetch from a measurement history. They may be
   // absent from `config` at configure time (validated per fetch instead).
   inputs?: string[];
@@ -43,7 +41,6 @@ type Entry = {
   adaptor: AnyAdaptor;
   raw: unknown; // unparsed config; re-parsed with overrides for dynamic inputs
   config: Record<string, unknown>; // parsed/validated config (no overrides)
-  transform: Transform;
   readSchema: Schema['read']; // validator for fetched native-unit readings
   writeSchema: Schema['write']; // validator for send() values, built once
 };
@@ -80,15 +77,12 @@ export class AdaptorRegistry {
         )
       : adaptor.config;
     const config = schema.parse(input.config) as Record<string, unknown>;
-    const transform = new Transform(adaptor.def);
-    transform.setup(input.components);
     const validator = new Schema(adaptor.def);
     validator.setup();
     this.#connectors.set(input.id, {
       adaptor,
       raw: input.config,
       config,
-      transform,
       readSchema: validator.read,
       writeSchema: validator.write,
     });
@@ -124,35 +118,12 @@ export class AdaptorRegistry {
     }));
   }
 
-  // Fetch a range and transform the readings into SeriesEntry[] (each entry's
-  // identifier is the feed id from the configured components). `configOverride`
-  // supplies time-varying input values (e.g. a GPS segment's lat/long); they are
-  // merged onto the raw config and re-validated via adaptor.config.parse.
-  async fetch(
-    connectorId: string,
-    range: Range,
-    configOverride?: Record<string, number>,
-  ): Promise<SeriesEntry[]> {
-    const entry = this.#connectors.get(connectorId);
-    if (!entry) throw new Error(`Unknown connector: ${connectorId}`);
-    const config = this.#resolveConfig(entry, configOverride);
-    const readings = await this.#fetchWithRetry(
-      connectorId,
-      entry,
-      range,
-      config,
-    );
-    const byTimestamp: Record<string, Record<string, number>> = {};
-    for (const reading of readings)
-      byTimestamp[reading.timestamp] = reading.values;
-    return entry.transform.measurements(byTimestamp);
-  }
-
-  // Fetch a range as wide native-unit readings (ALL declared read fields, not
-  // gated by tracked components). Each reading is validated against the base
-  // read schema, which also strips any keys the adaptor isn't declared to
-  // return. Backs wide `connectorSeries` storage; unit conversion to a
-  // measurement's chosen unit happens later at read/projection time.
+  // Fetch a range as wide native-unit readings (ALL declared read fields). Each
+  // reading is validated against the base read schema, which also strips any
+  // keys the adaptor isn't declared to return. Backs wide `connectorSeries`
+  // storage; unit conversion to a measurement's chosen unit happens later at
+  // read/projection time. `configOverride` supplies time-varying input values
+  // (e.g. a GPS segment's lat/long), merged onto the raw config and re-validated.
   async fetchReadings(
     connectorId: string,
     range: Range,

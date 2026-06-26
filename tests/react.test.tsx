@@ -28,12 +28,6 @@ const spec = (over: Partial<ConnectorSpec> = {}): ConnectorSpec => ({
   id: 'c1',
   adaptorId: 'test',
   config: { host: 'h' },
-  components: [
-    {
-      identifier: 'c1',
-      measurements: [{ reference: 'value', unit: '%', identifier: 'feed-1' }],
-    },
-  ],
   ...over,
 });
 
