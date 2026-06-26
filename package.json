@@ -1,6 +1,6 @@
 {
   "name": "@inntend/harvest",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "type": "module",
   "description": "Plugin-based connector runtime — pull and push external data on demand",
   "license": "MIT",
