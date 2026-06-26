@@ -44,6 +44,7 @@ type Entry = {
   raw: unknown; // unparsed config; re-parsed with overrides for dynamic inputs
   config: Record<string, unknown>; // parsed/validated config (no overrides)
   transform: Transform;
+  readSchema: Schema['read']; // validator for fetched native-unit readings
   writeSchema: Schema['write']; // validator for send() values, built once
 };
 
@@ -81,14 +82,15 @@ export class AdaptorRegistry {
     const config = schema.parse(input.config) as Record<string, unknown>;
     const transform = new Transform(adaptor.def);
     transform.setup(input.components);
-    const writeValidator = new Schema(adaptor.def);
-    writeValidator.setup();
+    const validator = new Schema(adaptor.def);
+    validator.setup();
     this.#connectors.set(input.id, {
       adaptor,
       raw: input.config,
       config,
       transform,
-      writeSchema: writeValidator.write,
+      readSchema: validator.read,
+      writeSchema: validator.write,
     });
     return this;
   }
@@ -133,12 +135,7 @@ export class AdaptorRegistry {
   ): Promise<SeriesEntry[]> {
     const entry = this.#connectors.get(connectorId);
     if (!entry) throw new Error(`Unknown connector: ${connectorId}`);
-    const config = configOverride
-      ? (entry.adaptor.config.parse({
-          ...(entry.raw as Record<string, unknown>),
-          ...configOverride,
-        }) as Record<string, unknown>)
-      : entry.config;
+    const config = this.#resolveConfig(entry, configOverride);
     const readings = await this.#fetchWithRetry(
       connectorId,
       entry,
@@ -149,6 +146,45 @@ export class AdaptorRegistry {
     for (const reading of readings)
       byTimestamp[reading.timestamp] = reading.values;
     return entry.transform.measurements(byTimestamp);
+  }
+
+  // Fetch a range as wide native-unit readings (ALL declared read fields, not
+  // gated by tracked components). Each reading is validated against the base
+  // read schema, which also strips any keys the adaptor isn't declared to
+  // return. Backs wide `connectorSeries` storage; unit conversion to a
+  // measurement's chosen unit happens later at read/projection time.
+  async fetchReadings(
+    connectorId: string,
+    range: Range,
+    configOverride?: Record<string, number>,
+  ): Promise<Reading[]> {
+    const entry = this.#connectors.get(connectorId);
+    if (!entry) throw new Error(`Unknown connector: ${connectorId}`);
+    const config = this.#resolveConfig(entry, configOverride);
+    const readings = await this.#fetchWithRetry(
+      connectorId,
+      entry,
+      range,
+      config,
+    );
+    return readings.map((reading) => ({
+      timestamp: reading.timestamp,
+      values: entry.readSchema.parse(reading.values) as Record<string, number>,
+    }));
+  }
+
+  // Resolve a connector's effective config: the validated bootstrap config, or —
+  // when `configOverride` supplies time-varying inputs (e.g. a GPS segment's
+  // lat/long) — the raw config merged with them and re-validated.
+  #resolveConfig(
+    entry: Entry,
+    configOverride?: Record<string, number>,
+  ): Record<string, unknown> {
+    if (!configOverride) return entry.config;
+    return entry.adaptor.config.parse({
+      ...(entry.raw as Record<string, unknown>),
+      ...configOverride,
+    }) as Record<string, unknown>;
   }
 
   // Push values out to the source (manual write-back). Each input value is

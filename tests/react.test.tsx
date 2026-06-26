@@ -55,7 +55,7 @@ function makeStore(
       return true;
     }),
     commitCoverage: vi.fn(async () => {}),
-    writeSeries: vi.fn(async () => {}),
+    writeReadings: vi.fn(async () => {}),
     reset: vi.fn(async () => {}),
   };
 }
@@ -108,7 +108,7 @@ describe('HarvesterProvider', () => {
     await act(async () => {
       await result.current.fetchRange('c1', FROM, TO);
     });
-    expect(store.writeSeries).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
     expect(store.commitCoverage).toHaveBeenCalledOnce();
 
     await act(async () => {
@@ -153,7 +153,7 @@ describe('HarvesterProvider', () => {
       await result.current.write('c1', []);
       await result.current.reload();
     });
-    expect(store.writeSeries).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
     // Catalog lookups fall back gracefully with no harvester behind them.
     expect(result.current.adaptorDef('test')).toBeNull();
     expect(result.current.listAdaptors()).toEqual([]);
@@ -212,7 +212,7 @@ describe('HarvesterProvider', () => {
       FROM.toISOString(),
       TO.toISOString(),
     );
-    expect(store.writeSeries).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
   });
 
   it('reflects pending while a connector is actively fetching a gap', async () => {
