@@ -66,8 +66,6 @@ export function useHarvester(): HarvesterContextValue {
 export type HarvesterProviderProps = {
   // The host's persistence adapter — see ConnectorStore.
   store: ConnectorStore;
-  // Stable per-device id used to attribute fetch claims across devices.
-  deviceId: string;
   // Custom adaptors in addition to the built-ins.
   adaptors?: AnyAdaptor[];
   // Auto-register the built-in adaptors (demo/open-meteo/skyhints). Default true.
@@ -81,7 +79,7 @@ export type HarvesterProviderProps = {
 };
 
 export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
-  const { store, deviceId, retry, enabled = true, reloadKey, children } = props;
+  const { store, retry, enabled = true, reloadKey, children } = props;
   const adaptors = props.adaptors ?? [];
   const includeBuiltins = props.includeBuiltins ?? true;
 
@@ -100,7 +98,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    const options: HarvesterOptions = { store, deviceId, retry };
+    const options: HarvesterOptions = { store, retry };
     const list = builtinsRef.current
       ? [...BUILTINS, ...adaptorsRef.current]
       : adaptorsRef.current;
@@ -132,7 +130,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       setReady(false);
       setConnectorIds([]);
     };
-  }, [store, deviceId, retry, enabled, reloadKey]);
+  }, [store, retry, enabled, reloadKey]);
 
   const fetchRange = useCallback(
     async (connectorId: string, from: Date, to: Date) => {
@@ -205,13 +203,20 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
 
 // Demand trigger: when a view needs data over [from, to), ask every configured
 // connector to fill any uncovered gaps. Covered ranges make no external call.
-export function useDemandPull(range: { from: Date; to: Date }): void {
+// Pass `enabled: false` to hold off fetching (e.g. while a sync is in flight, so
+// already-synced coverage lands first and the fetch sees nothing to do); when it
+// flips back to true the pull runs.
+export function useDemandPull(
+  range: { from: Date; to: Date },
+  options?: { enabled?: boolean },
+): void {
   const { ready, connectorIds, fetchRange } = useHarvester();
+  const enabled = options?.enabled ?? true;
   const fromIso = range.from.toISOString();
   const toIso = range.to.toISOString();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !enabled) return;
     let active = true;
     void (async () => {
       for (const connectorId of connectorIds) {
@@ -222,5 +227,5 @@ export function useDemandPull(range: { from: Date; to: Date }): void {
     return () => {
       active = false;
     };
-  }, [ready, connectorIds, fromIso, toIso, fetchRange]);
+  }, [ready, enabled, connectorIds, fromIso, toIso, fetchRange]);
 }

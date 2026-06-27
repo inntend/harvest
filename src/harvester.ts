@@ -41,26 +41,21 @@ export type Segment = {
 };
 
 // The port the host implements over its persistence layer. Harvest owns *when*
-// to call these; the host owns the reads/writes (and dedupe).
+// to call these; the host owns the reads/writes (and dedupe). Cross-device
+// fetch dedupe is handled by the host syncing `coveredRanges` (a device that
+// already pulled the synced coverage sees no gap), so the port carries no
+// per-device claim; within-device overlap is guarded in-memory by the Harvester.
 export interface ConnectorStore {
   list(): Promise<ConnectorSpec[]>;
   coveredRanges(connectorId: string): Promise<Interval[]>;
-  // Returns false if the interval is already covered or live-claimed by another
-  // device; otherwise records a claim for `deviceId` and returns true.
-  claim(
-    connectorId: string,
-    from: string,
-    to: string,
-    deviceId: string,
-  ): Promise<boolean>;
   commitCoverage(connectorId: string, from: string, to: string): Promise<void>;
   // Merge the fetched native-unit read fields into the connector's wide rows
   // (one row per timestamp). A merge — never a whole-row replace — so user
   // recorded input fields on the same row survive a re-fetch.
   writeReadings(connectorId: string, readings: Reading[]): Promise<void>;
-  // Clear coverage, claims and the connector's read fields for [from, to) so the
-  // range can be fetched fresh — backs Harvester.refetch(). User-recorded input
-  // fields are left intact (a re-fetch only overwrites read fields).
+  // Clear coverage and the connector's read fields for [from, to) so the range
+  // can be fetched fresh — backs Harvester.refetch(). User-recorded input fields
+  // are left intact (a re-fetch only overwrites read fields).
   reset(connectorId: string, from: string, to: string): Promise<void>;
   // History of a connector's input parameters over [from, to), including the
   // last value at or before `from` per reference (carry-in) so the first
@@ -74,18 +69,16 @@ export interface ConnectorStore {
 
 export type HarvesterOptions = {
   store: ConnectorStore;
-  deviceId: string;
   retry?: RetryOptions;
 };
 
 const DEFAULT_RETRY: RetryOptions = { retries: 3, baseDelayMs: 1000 };
 
 // Demand-driven connector runtime: loads connector configs, and on request fills
-// the uncovered gaps of a range by claiming → fetching → writing → committing.
+// the uncovered gaps of a range by fetching → writing → committing coverage.
 export class Harvester {
   readonly #store: ConnectorStore;
   readonly #registry: AdaptorRegistry;
-  readonly #deviceId: string;
   readonly #errorHandlers: ((event: ErrorEvent) => void | Promise<void>)[] = [];
   // Subscribers notified when a connector starts/stops actively fetching, plus a
   // per-connector in-flight count so we emit only on the 0↔1 transitions.
@@ -94,12 +87,15 @@ export class Harvester {
     active: boolean,
   ) => void)[] = [];
   readonly #pending = new Map<string, number>();
+  // Gaps being fetched right now (`connectorId|from|to`), so overlapping
+  // fetchRange calls on this device don't double-fetch the same window before
+  // its coverage is committed.
+  readonly #inFlight = new Set<string>();
   // connectorId -> config keys driven by a measurement history (from spec.inputs).
   readonly #inputs = new Map<string, string[]>();
 
   constructor(options: HarvesterOptions) {
     this.#store = options.store;
-    this.#deviceId = options.deviceId;
     this.#registry = new AdaptorRegistry({
       retry: options.retry ?? DEFAULT_RETRY,
     });
@@ -161,13 +157,9 @@ export class Harvester {
       covered,
     );
     for (const gap of gaps) {
-      const claimed = await this.#store.claim(
-        connectorId,
-        gap.from,
-        gap.to,
-        this.#deviceId,
-      );
-      if (!claimed) continue;
+      const key = `${connectorId}|${gap.from}|${gap.to}`;
+      if (this.#inFlight.has(key)) continue;
+      this.#inFlight.add(key);
       this.#markPending(connectorId, 1);
       try {
         // Connectors with dynamic inputs (e.g. GPS) segment the gap by input
@@ -183,9 +175,10 @@ export class Harvester {
         await this.#store.writeReadings(connectorId, readings);
         await this.#store.commitCoverage(connectorId, gap.from, gap.to);
       } catch {
-        // The registry already emitted onError for the failed attempts. Leave the
-        // claim to expire so a later request retries this gap (self-heal).
+        // The registry already emitted onError for the failed attempts. The gap
+        // stays uncovered, so a later request retries it (self-heal).
       } finally {
+        this.#inFlight.delete(key);
         this.#markPending(connectorId, -1);
       }
     }
@@ -219,7 +212,7 @@ export class Harvester {
     return readings;
   }
 
-  // Force a re-fetch of [from, to): clear its coverage/claims/read fields for the
+  // Force a re-fetch of [from, to): clear its coverage/read fields for the
   // connector, then fetch it again (writing fresh read values).
   async refetch(connectorId: string, from: Date, to: Date): Promise<void> {
     if (!this.#registry.has(connectorId)) return;

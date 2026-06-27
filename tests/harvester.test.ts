@@ -44,16 +44,9 @@ function makeStore(
   covered: Record<string, Interval[]> = {},
   history: Record<string, ParameterPoint[]> = {},
 ) {
-  const claimed = new Set<string>();
   return {
     list: vi.fn(async () => specs),
     coveredRanges: vi.fn(async (id: string) => covered[id] ?? []),
-    claim: vi.fn(async (id: string, from: string, to: string) => {
-      const key = `${id}|${from}|${to}`;
-      if (claimed.has(key)) return false;
-      claimed.add(key);
-      return true;
-    }),
     commitCoverage: vi.fn(async () => {}),
     writeReadings: vi.fn(async (_id: string, _readings: Reading[]) => {}),
     reset: vi.fn(async () => {}),
@@ -64,7 +57,6 @@ function makeStore(
 const harvester = (store: ReturnType<typeof makeStore>) =>
   new Harvester({
     store: store as unknown as ConnectorStore,
-    deviceId: 'd1',
     retry: { retries: 0 },
   });
 
@@ -93,13 +85,29 @@ describe('Harvester.fetchRange', () => {
     expect(store.writeReadings).not.toHaveBeenCalled();
   });
 
-  it('skips a gap claimed by another device', async () => {
+  it('does not double-fetch a gap already in flight on this device', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
     const store = makeStore([spec()]);
-    store.claim = vi.fn(async () => false);
-    const h = harvester(store).provide(adaptor());
+    const fetchFn = vi.fn(async (_cfg, range) => {
+      await gate; // hold the first fetch open while the second is requested
+      return [{ timestamp: range.to.toISOString(), values: { value: 1 } }];
+    });
+    const h = harvester(store).provide(adaptor(fetchFn));
     await h.load();
-    await h.fetchRange('c1', FROM, TO);
-    expect(store.writeReadings).not.toHaveBeenCalled();
+
+    const p1 = h.fetchRange('c1', FROM, TO);
+    const p2 = h.fetchRange('c1', FROM, TO); // same gap, while p1 is in flight
+    await new Promise((r) => setTimeout(r, 0));
+
+    release();
+    await Promise.all([p1, p2]);
+
+    // The second call saw the gap in flight and skipped it — one fetch, one write.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(store.writeReadings).toHaveBeenCalledOnce();
   });
 
   it('does not configure disabled connectors', async () => {
@@ -148,7 +156,6 @@ describe('Harvester.fetchRange', () => {
     // No `retry` option → falls back to DEFAULT_RETRY internally.
     const h = new Harvester({
       store: store as unknown as ConnectorStore,
-      deviceId: 'd1',
     }).provide(adaptor());
     await h.load();
     await h.fetchRange('c1', FROM, TO);

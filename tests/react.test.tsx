@@ -38,16 +38,9 @@ function makeStore(
   specs: ConnectorSpec[],
   covered: Record<string, Interval[]> = {},
 ) {
-  const claimed = new Set<string>();
   return {
     list: vi.fn(async () => specs),
     coveredRanges: vi.fn(async (id: string) => covered[id] ?? []),
-    claim: vi.fn(async (id: string, from: string, to: string) => {
-      const key = `${id}|${from}|${to}`;
-      if (claimed.has(key)) return false;
-      claimed.add(key);
-      return true;
-    }),
     commitCoverage: vi.fn(async () => {}),
     writeReadings: vi.fn(async () => {}),
     reset: vi.fn(async () => {}),
@@ -61,7 +54,6 @@ const wrapper =
   ({ children }: { children: ReactNode }) =>
     createElement(HarvesterProvider, {
       store: store as ConnectorStore,
-      deviceId: 'd1',
       includeBuiltins: false,
       adaptors: [adaptor()],
       ...props,
@@ -161,7 +153,6 @@ describe('HarvesterProvider', () => {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(HarvesterProvider, {
           store: store as unknown as ConnectorStore,
-          deviceId: 'd1',
           children,
         }),
     });
@@ -268,9 +259,10 @@ describe('useDemandPull', () => {
       }),
     );
 
-    // One claim per connector for the requested range, after ready flips true.
-    await waitFor(() => expect(store.claim).toHaveBeenCalledTimes(2));
-    const ids = store.claim.mock.calls.map((c) => c[0]);
+    // One fetch per connector for the requested range, after ready flips true
+    // (fetchRange reads coveredRanges first).
+    await waitFor(() => expect(store.coveredRanges).toHaveBeenCalledTimes(2));
+    const ids = store.coveredRanges.mock.calls.map((c) => c[0]);
     expect(ids).toEqual(['c1', 'c2']);
 
     unmount(); // runs the effect cleanup (active = false)
@@ -308,5 +300,30 @@ describe('useDemandPull', () => {
 
     // The loop resumes, sees active === false, and never reaches c2.
     expect(store.coveredRanges).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds off fetching while disabled, then pulls when enabled flips true', async () => {
+    const store = makeStore([spec()]);
+    const W = wrapper(store);
+    const Demand = ({ enabled }: { enabled: boolean }) => {
+      useDemandPull({ from: FROM, to: TO }, { enabled });
+      return null;
+    };
+    const { rerender } = render(
+      createElement(W, { children: createElement(Demand, { enabled: false }) }),
+    );
+
+    // Loaded, but disabled → no fetch.
+    await waitFor(() => expect(store.list).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(store.coveredRanges).not.toHaveBeenCalled();
+
+    // Flip enabled → the pull runs.
+    rerender(
+      createElement(W, { children: createElement(Demand, { enabled: true }) }),
+    );
+    await waitFor(() => expect(store.coveredRanges).toHaveBeenCalledTimes(1));
   });
 });
