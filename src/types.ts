@@ -24,6 +24,17 @@ export type Adaptor<C extends Shape> = {
 
 export type AnyAdaptor = Adaptor<any>;
 
+// A push/captured source for a connector's time-varying inputs (e.g. a device's
+// GPS → latitude/longitude). Unlike adaptor.fetch (demand-pull from a remote API
+// over a range), a feed is captured at a point in time and written into the
+// connector's own input series, then read back via the store's parameterHistory
+// for segmentation. `read` performs any permission/IO and returns the current
+// values keyed by input reference, or null when unavailable/denied.
+export type InputFeed = {
+  readonly id: string;
+  read(): Promise<Record<string, number> | null>;
+};
+
 // Thrown by `configure()` when a connector references an adaptor type id that
 // was never `provide()`d (e.g. a custom adaptor the host app forgot to supply).
 export class UnknownAdaptorError extends Error {

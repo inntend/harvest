@@ -25,7 +25,7 @@ import type {
   RetryOptions,
   WriteInput,
 } from './registry';
-import type { AnyAdaptor } from './types';
+import type { AnyAdaptor, InputFeed } from './types';
 
 // Built-in adaptors auto-registered by HarvesterProvider (unless disabled).
 const BUILTINS: AnyAdaptor[] = [demoAdaptor, openMeteoAdaptor, skyhintsAdaptor];
@@ -45,6 +45,10 @@ export type HarvesterContextValue = {
   pending: Record<string, boolean>;
   // Manual write-back: push values out via the connector's adaptor.send().
   write: (connectorId: string, inputs: WriteInput[]) => Promise<void>;
+  // Capture push/device input feeds into the connectors that bind them, stamping
+  // values at `at` and reopening coverage over [at, through). The host owns when
+  // to call this and the timestamps; see Harvester.captureInputs.
+  captureInputs: (feeds: InputFeed[], at: Date, through: Date) => Promise<void>;
   // Re-read connector configs (e.g. after new connectors arrive).
   reload: () => Promise<void>;
   // Last error per connector id (unknown adaptor, exhausted fetch retries, …).
@@ -153,6 +157,13 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
     [],
   );
 
+  const captureInputs = useCallback(
+    async (feeds: InputFeed[], at: Date, through: Date) => {
+      await harvesterRef.current?.captureInputs(feeds, at, through);
+    },
+    [],
+  );
+
   const reload = useCallback(async () => {
     const harvester = harvesterRef.current;
     if (!harvester) return;
@@ -179,6 +190,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       refetch,
       pending,
       write,
+      captureInputs,
       reload,
       health,
       adaptorDef,
@@ -191,6 +203,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       refetch,
       pending,
       write,
+      captureInputs,
       reload,
       health,
       adaptorDef,

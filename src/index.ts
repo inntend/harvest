@@ -31,5 +31,5 @@ export type {
 } from './registry';
 export { AdaptorRegistry } from './registry';
 export { Schema } from './schema';
-export type { Adaptor, AnyAdaptor, Range, Reading } from './types';
+export type { Adaptor, AnyAdaptor, InputFeed, Range, Reading } from './types';
 export { UnknownAdaptorError } from './types';

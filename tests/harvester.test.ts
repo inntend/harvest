@@ -524,3 +524,112 @@ describe('subtractIntervals', () => {
     ]);
   });
 });
+
+describe('Harvester.captureInputs', () => {
+  const AT = new Date('2024-01-02T00:00:00Z');
+  const THROUGH = new Date('2024-01-02T12:00:00Z');
+
+  const gpsConfig = z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  });
+  const gpsAdaptor: Adaptor<typeof gpsConfig.shape> = {
+    id: 'gps',
+    name: 'GPS',
+    config: gpsConfig,
+    def: {
+      properties: {},
+      read: { temp: { unit: 'C' } },
+      write: {},
+      inputs: { latitude: { unit: 'deg' }, longitude: { unit: 'deg' } },
+    },
+    fetch: async () => [],
+  };
+
+  const gpsSpec = (over: Partial<ConnectorSpec> = {}): ConnectorSpec => ({
+    id: 'c1',
+    adaptorId: 'gps',
+    config: { latitude: 0, longitude: 0 },
+    inputs: ['latitude', 'longitude'],
+    inputFeeds: { latitude: 'device-gps', longitude: 'device-gps' },
+    ...over,
+  });
+
+  const feed = (
+    values: Record<string, number> | null = { latitude: 1, longitude: 2 },
+  ) => ({ id: 'device-gps', read: vi.fn(async () => values) });
+
+  it('writes feed values and reopens coverage for a connector missing today', async () => {
+    const store = makeStore([gpsSpec()]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+    expect(store.writeReadings.mock.calls[0][1][0]).toMatchObject({
+      timestamp: AT.toISOString(),
+      values: { latitude: 1, longitude: 2 },
+    });
+    expect(store.reset).toHaveBeenCalledWith(
+      'c1',
+      AT.toISOString(),
+      THROUGH.toISOString(),
+    );
+  });
+
+  it('skips when the connector already has values at/after `at`', async () => {
+    const store = makeStore(
+      [gpsSpec()],
+      {},
+      {
+        c1: [
+          { reference: 'latitude', timestamp: AT.toISOString(), value: 9 },
+          { reference: 'longitude', timestamp: AT.toISOString(), value: 9 },
+        ],
+      },
+    );
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+    expect(store.reset).not.toHaveBeenCalled();
+  });
+
+  it('reads the feed once and writes to every consumer', async () => {
+    const store = makeStore([gpsSpec({ id: 'c1' }), gpsSpec({ id: 'c2' })]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledTimes(2);
+    expect(store.reset).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not write or reset when the feed is unavailable', async () => {
+    const store = makeStore([gpsSpec()]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    await h.captureInputs([feed(null)], AT, THROUGH);
+
+    expect(store.writeReadings).not.toHaveBeenCalled();
+    expect(store.reset).not.toHaveBeenCalled();
+  });
+
+  it('ignores connectors that do not bind the feed', async () => {
+    const store = makeStore([gpsSpec({ inputFeeds: undefined })]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+  });
+});

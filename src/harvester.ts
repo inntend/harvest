@@ -5,7 +5,7 @@ import {
   type RetryOptions,
   type WriteInput,
 } from './registry';
-import type { AnyAdaptor, Reading } from './types';
+import type { AnyAdaptor, InputFeed, Reading } from './types';
 
 // What the store hands the Harvester per connector. The host maps its own
 // (encrypted) records onto this — Harvest stays storage-agnostic. A fetch pulls
@@ -19,6 +19,11 @@ export type ConnectorSpec = {
   // Config keys driven by a measurement history (e.g. ['latitude','longitude']).
   // Empty/absent ⇒ fixed connector (single fetch over the whole range).
   inputs?: string[];
+  // Input references populated by a push/captured feed rather than hand-recorded
+  // history: input reference -> feed id. Read by Harvester.captureInputs to know
+  // which connectors a feed fills (the values still resolve as ordinary input
+  // history at fetch time, so this never affects fetchRange).
+  inputFeeds?: Record<string, string>;
 };
 
 // An ISO-8601 [from, to) interval. String form keeps the port serialization-free
@@ -93,6 +98,8 @@ export class Harvester {
   readonly #inFlight = new Set<string>();
   // connectorId -> config keys driven by a measurement history (from spec.inputs).
   readonly #inputs = new Map<string, string[]>();
+  // connectorId -> { input reference -> feed id } (from spec.inputFeeds).
+  readonly #inputFeeds = new Map<string, Record<string, string>>();
 
   constructor(options: HarvesterOptions) {
     this.#store = options.store;
@@ -125,6 +132,7 @@ export class Harvester {
   async load(): Promise<void> {
     const specs = await this.#store.list();
     this.#inputs.clear();
+    this.#inputFeeds.clear();
     for (const spec of specs) {
       if (spec.enabled === false) continue;
       try {
@@ -135,6 +143,8 @@ export class Harvester {
           inputs: spec.inputs,
         });
         if (spec.inputs?.length) this.#inputs.set(spec.id, spec.inputs);
+        if (spec.inputFeeds && Object.keys(spec.inputFeeds).length)
+          this.#inputFeeds.set(spec.id, spec.inputFeeds);
       } catch (error) {
         await this.#emitError({
           connectorId: spec.id,
@@ -218,6 +228,58 @@ export class Harvester {
     if (!this.#registry.has(connectorId)) return;
     await this.#store.reset(connectorId, from.toISOString(), to.toISOString());
     await this.fetchRange(connectorId, from, to);
+  }
+
+  // Capture push/device input feeds into the connectors that bind them. For each
+  // feed, finds connectors whose `inputFeeds` reference it and that lack a value
+  // at/after `at`, reads the feed once (serving all its consumers), writes the
+  // values as those connectors' inputs stamped at `at`, then reopens coverage
+  // over [at, through) so the next fetch re-segments on the new value — a range
+  // fetched while the feed was unavailable was committed empty, and reopening is
+  // what lets it refill. The host owns cadence and supplies `at` (the value's
+  // timestamp, e.g. local midnight) and `through` (typically now).
+  async captureInputs(
+    feeds: InputFeed[],
+    at: Date,
+    through: Date,
+  ): Promise<void> {
+    const atIso = at.toISOString();
+    const throughIso = through.toISOString();
+    for (const feed of feeds) {
+      // Connectors binding this feed, with the references it still needs to fill.
+      const targets: { id: string; refs: string[] }[] = [];
+      for (const [id, map] of this.#inputFeeds) {
+        if (!this.#registry.has(id)) continue;
+        const refs = Object.entries(map)
+          .filter(([, feedId]) => feedId === feed.id)
+          .map(([reference]) => reference);
+        if (refs.length === 0) continue;
+        const history =
+          (await this.#store.parameterHistory?.(id, atIso, throughIso)) ?? [];
+        const have = new Set(
+          history.filter((p) => p.timestamp >= atIso).map((p) => p.reference),
+        );
+        const missing = refs.filter((r) => !have.has(r));
+        if (missing.length > 0) targets.push({ id, refs: missing });
+      }
+      if (targets.length === 0) continue;
+
+      const values = await feed.read();
+      if (!values) continue;
+
+      for (const { id, refs } of targets) {
+        const fields = Object.fromEntries(
+          refs
+            .filter((r) => values[r] !== undefined)
+            .map((r) => [r, values[r]]),
+        );
+        if (Object.keys(fields).length === 0) continue;
+        await this.#store.writeReadings(id, [
+          { timestamp: atIso, values: fields },
+        ]);
+        await this.#store.reset(id, atIso, throughIso);
+      }
+    }
   }
 
   // Manual write-back: push values out via the connector's adaptor.send().
