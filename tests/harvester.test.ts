@@ -634,6 +634,56 @@ describe('Harvester.captureInputs', () => {
     expect(f.read).not.toHaveBeenCalled();
     expect(store.writeReadings).not.toHaveBeenCalled();
   });
+
+  it('skips a connector whose inputFeeds map to a different feed id', async () => {
+    // connector binds 'other-feed', not 'device-gps' → refs is empty → continue
+    const store = makeStore([
+      gpsSpec({
+        inputFeeds: { latitude: 'other-feed', longitude: 'other-feed' },
+      }),
+    ]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+  });
+
+  it('treats absent parameterHistory as no prior values and writes the feed', async () => {
+    // Store without parameterHistory → covers the ?. null path and ?? [] fallback.
+    const store = {
+      list: vi.fn(async () => [gpsSpec()]),
+      coveredRanges: vi.fn(async () => []),
+      commitCoverage: vi.fn(async () => {}),
+      writeReadings: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}),
+    } as unknown as ReturnType<typeof makeStore>;
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+  });
+
+  it('skips write when feed values contain none of the expected refs', async () => {
+    // Feed returns 'elevation' but connector expects 'latitude'/'longitude' → fields is empty
+    const store = makeStore([gpsSpec()]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = {
+      id: 'device-gps',
+      read: vi.fn(async () => ({ elevation: 100 })),
+    };
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+    expect(store.reset).not.toHaveBeenCalled();
+  });
 });
 
 describe('Harvester.fetchRange stable-cutoff coverage', () => {

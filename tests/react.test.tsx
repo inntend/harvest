@@ -137,6 +137,7 @@ describe('HarvesterProvider', () => {
     await act(async () => {
       await result.current.fetchRange('c1', FROM, TO);
       await result.current.write('c1', []);
+      await result.current.captureInputs([], FROM, TO);
       await result.current.reload();
     });
     expect(store.writeReadings).not.toHaveBeenCalled();
