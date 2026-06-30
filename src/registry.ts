@@ -108,6 +108,15 @@ export class AdaptorRegistry {
     return this.#catalog.get(adaptorId)?.def ?? null;
   }
 
+  // The instant on/before which a connector's data is final, per its adaptor's
+  // `stableBefore` (null when the adaptor declares none ⇒ all data is final).
+  // The Harvester uses this to clamp how much of a fetched gap it commits.
+  stableBefore(connectorId: string, now: Date): Date | null {
+    return (
+      this.#connectors.get(connectorId)?.adaptor.stableBefore?.(now) ?? null
+    );
+  }
+
   // All registered adaptor types (built-in + host-supplied), so the UI can list
   // what's addable. Each carries its presentation metadata via `def`.
   catalog(): AdaptorInfo[] {

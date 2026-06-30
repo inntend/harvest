@@ -20,6 +20,11 @@ export type Adaptor<C extends Shape> = {
     config: z.infer<z.ZodObject<C>>,
     values: Record<string, number>,
   ): Promise<void>;
+  // The instant on/before which this adaptor's data is final (immutable). Anything
+  // at or after it is volatile (e.g. a weather forecast that revises) and must be
+  // re-fetched on each pull. The Harvester commits coverage only up to this
+  // boundary, leaving the volatile tail uncovered. Absent ⇒ all data is final.
+  stableBefore?(now: Date): Date;
 };
 
 export type AnyAdaptor = Adaptor<any>;

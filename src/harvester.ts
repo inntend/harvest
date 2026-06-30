@@ -183,7 +183,18 @@ export class Harvester {
                 to: new Date(gap.to),
               });
         await this.#store.writeReadings(connectorId, readings);
-        await this.#store.commitCoverage(connectorId, gap.from, gap.to);
+        // Commit only the FINAL portion of the gap. An adaptor whose recent/
+        // future data revises (e.g. a weather forecast) reports a `stableBefore`
+        // boundary; the volatile tail past it stays uncovered so the next pull
+        // re-fetches and overwrites it, and freezes each day as it ages past the
+        // boundary. No boundary ⇒ the whole gap is final (commit it all).
+        const boundary = this.#registry.stableBefore(connectorId, new Date());
+        const commitTo =
+          boundary && boundary.toISOString() < gap.to
+            ? boundary.toISOString()
+            : gap.to;
+        if (commitTo > gap.from)
+          await this.#store.commitCoverage(connectorId, gap.from, commitTo);
       } catch {
         // The registry already emitted onError for the failed attempts. The gap
         // stays uncovered, so a later request retries it (self-heal).
