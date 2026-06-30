@@ -56,10 +56,14 @@ function makeStore(
   };
 }
 
-const harvester = (store: ReturnType<typeof makeStore>) =>
+const harvester = (
+  store: ReturnType<typeof makeStore>,
+  opts?: { volatileTtlMs?: number },
+) =>
   new Harvester({
     store: store as unknown as ConnectorStore,
     retry: { retries: 0 },
+    volatileTtlMs: opts?.volatileTtlMs,
   });
 
 describe('Harvester.fetchRange', () => {
@@ -686,8 +690,9 @@ describe('Harvester.captureInputs', () => {
   });
 });
 
-describe('Harvester.fetchRange stable-cutoff coverage', () => {
+describe('Harvester.fetchRange forecast coverage (volatile TTL)', () => {
   const MID = new Date('2024-01-01T12:00:00Z'); // between FROM and TO
+  const HOUR = 60 * 60 * 1000;
 
   const stable = (
     boundary: Date,
@@ -697,9 +702,18 @@ describe('Harvester.fetchRange stable-cutoff coverage', () => {
     stableBefore: () => boundary,
   });
 
-  it('commits the whole gap when the adaptor has no stableBefore', async () => {
+  const fetchSpy = () =>
+    vi.fn(async (_cfg: unknown, range: Range) => [
+      { timestamp: range.to.toISOString(), values: { value: 1 } },
+    ]);
+
+  const coveredFull = (fetchedAt: string): Record<string, Interval[]> => ({
+    c1: [{ from: FROM.toISOString(), to: TO.toISOString(), fetchedAt }],
+  });
+
+  it('commits the whole gap (stable head + volatile tail)', async () => {
     const store = makeStore([spec()]);
-    const h = harvester(store).provide(adaptor());
+    const h = harvester(store).provide(stable(MID));
     await h.load();
     await h.fetchRange('c1', FROM, TO);
     expect(store.commitCoverage).toHaveBeenCalledWith(
@@ -709,70 +723,44 @@ describe('Harvester.fetchRange stable-cutoff coverage', () => {
     );
   });
 
-  it('commits coverage only up to the stable boundary', async () => {
-    const store = makeStore([spec()]);
-    const h = harvester(store).provide(stable(MID));
-    await h.load();
-    await h.fetchRange('c1', FROM, TO);
-    expect(store.writeReadings).toHaveBeenCalledOnce(); // all readings still written
-    expect(store.commitCoverage).toHaveBeenCalledWith(
-      'c1',
-      FROM.toISOString(),
-      MID.toISOString(),
-    );
-  });
-
-  it('writes but does not commit when the whole gap is volatile', async () => {
-    const store = makeStore([spec()]);
-    const h = harvester(store).provide(stable(FROM)); // boundary at gap start
-    await h.load();
-    await h.fetchRange('c1', FROM, TO);
-    expect(store.writeReadings).toHaveBeenCalledOnce();
-    expect(store.commitCoverage).not.toHaveBeenCalled();
-  });
-
-  it('re-fetches only the volatile tail on the next pull', async () => {
-    const covered: Record<string, Interval[]> = {};
-    const store = makeStore([spec()], covered);
-    store.commitCoverage = vi.fn(
-      async (id: string, from: string, to: string) => {
-        covered[id] = [{ from, to }];
-      },
-    );
-    const fetchFn = vi.fn(async (_cfg: unknown, range: Range) => [
-      { timestamp: range.to.toISOString(), values: { value: 1 } },
-    ]);
+  it('with no TTL, re-fetches only the volatile tail each pull', async () => {
+    // Coverage is "fresh", but ttl=0 ⇒ the volatile tail always reopens.
+    const store = makeStore([spec()], coveredFull(new Date().toISOString()));
+    const fetchFn = fetchSpy();
     const h = harvester(store).provide(stable(MID, fetchFn));
     await h.load();
-    await h.fetchRange('c1', FROM, TO); // covers [FROM, MID); tail stays open
     await h.fetchRange('c1', FROM, TO);
-
-    expect(fetchFn).toHaveBeenCalledTimes(2);
-    expect(fetchFn.mock.calls[0][1]).toEqual({ from: FROM, to: TO });
-    expect(fetchFn.mock.calls[1][1]).toEqual({ from: MID, to: TO });
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(fetchFn.mock.calls[0][1]).toEqual({ from: MID, to: TO });
   });
 
-  it('freezes the tail once it ages past the (advancing) boundary', async () => {
-    const covered: Record<string, Interval[]> = {};
-    const store = makeStore([spec()], covered);
-    store.commitCoverage = vi.fn(
-      async (id: string, from: string, to: string) => {
-        covered[id] = [...(covered[id] ?? []), { from, to }];
-      },
-    );
-    let boundary = MID;
-    const h = harvester(store).provide({
-      ...adaptor(),
-      stableBefore: () => boundary,
-    });
+  it('within the TTL, does not re-fetch fresh volatile coverage', async () => {
+    const store = makeStore([spec()], coveredFull(new Date().toISOString()));
+    const h = harvester(store, { volatileTtlMs: HOUR }).provide(stable(MID));
     await h.load();
-    await h.fetchRange('c1', FROM, TO); // commits [FROM, MID)
-    boundary = TO; // a day later the tail is final
-    await h.fetchRange('c1', FROM, TO); // commits [MID, TO)
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).not.toHaveBeenCalled();
+  });
 
-    expect(store.commitCoverage.mock.calls.map((c) => [c[1], c[2]])).toEqual([
-      [FROM.toISOString(), MID.toISOString()],
-      [MID.toISOString(), TO.toISOString()],
-    ]);
+  it('after the TTL, reopens the volatile tail (keeps the stable head)', async () => {
+    const staleAt = new Date(Date.now() - 5 * HOUR).toISOString();
+    const store = makeStore([spec()], coveredFull(staleAt));
+    const fetchFn = fetchSpy();
+    const h = harvester(store, { volatileTtlMs: HOUR }).provide(
+      stable(MID, fetchFn),
+    );
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(fetchFn.mock.calls[0][1]).toEqual({ from: MID, to: TO });
+  });
+
+  it('never expires coverage for an adaptor without stableBefore', async () => {
+    const staleAt = new Date(Date.now() - 5 * HOUR).toISOString();
+    const store = makeStore([spec()], coveredFull(staleAt));
+    const h = harvester(store, { volatileTtlMs: HOUR }).provide(adaptor());
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).not.toHaveBeenCalled();
   });
 });

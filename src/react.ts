@@ -75,6 +75,8 @@ export type HarvesterProviderProps = {
   // Auto-register the built-in adaptors (demo/open-meteo/skyhints). Default true.
   includeBuiltins?: boolean;
   retry?: RetryOptions;
+  // Freshness window (ms) for volatile (forecast) coverage; see HarvesterOptions.
+  volatileTtlMs?: number;
   // Gate loading until prerequisites are met (e.g. an encryption key). Default true.
   enabled?: boolean;
   // When this value changes, connectors are reloaded (e.g. a store change signal).
@@ -83,7 +85,14 @@ export type HarvesterProviderProps = {
 };
 
 export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
-  const { store, retry, enabled = true, reloadKey, children } = props;
+  const {
+    store,
+    retry,
+    volatileTtlMs,
+    enabled = true,
+    reloadKey,
+    children,
+  } = props;
   const adaptors = props.adaptors ?? [];
   const includeBuiltins = props.includeBuiltins ?? true;
 
@@ -102,7 +111,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    const options: HarvesterOptions = { store, retry };
+    const options: HarvesterOptions = { store, retry, volatileTtlMs };
     const list = builtinsRef.current
       ? [...BUILTINS, ...adaptorsRef.current]
       : adaptorsRef.current;
@@ -134,7 +143,7 @@ export function HarvesterProvider(props: HarvesterProviderProps): ReactElement {
       setReady(false);
       setConnectorIds([]);
     };
-  }, [store, retry, enabled, reloadKey]);
+  }, [store, retry, volatileTtlMs, enabled, reloadKey]);
 
   const fetchRange = useCallback(
     async (connectorId: string, from: Date, to: Date) => {

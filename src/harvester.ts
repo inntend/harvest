@@ -27,8 +27,10 @@ export type ConnectorSpec = {
 };
 
 // An ISO-8601 [from, to) interval. String form keeps the port serialization-free
-// and lexicographically sortable (all UTC `…Z`).
-export type Interval = { from: string; to: string };
+// and lexicographically sortable (all UTC `…Z`). `fetchedAt` (when the host can
+// supply it) is when this coverage was last written — used to expire volatile
+// (forecast) coverage past an adaptor's `stableBefore` boundary after the TTL.
+export type Interval = { from: string; to: string; fetchedAt?: string };
 
 // One sample of a time-varying input parameter. `reference` is the adaptor
 // config key; `timestamp` is ISO-8601. Used to segment the fetch range.
@@ -75,6 +77,11 @@ export interface ConnectorStore {
 export type HarvesterOptions = {
   store: ConnectorStore;
   retry?: RetryOptions;
+  // How long volatile (forecast) coverage stays fresh before it's re-fetched, in
+  // ms. Coverage past an adaptor's `stableBefore` boundary whose `fetchedAt` is
+  // older than this is treated as a gap (rate-limits forecast re-fetches). Omit
+  // or 0 ⇒ volatile coverage is re-fetched on every pull.
+  volatileTtlMs?: number;
 };
 
 const DEFAULT_RETRY: RetryOptions = { retries: 3, baseDelayMs: 1000 };
@@ -100,9 +107,12 @@ export class Harvester {
   readonly #inputs = new Map<string, string[]>();
   // connectorId -> { input reference -> feed id } (from spec.inputFeeds).
   readonly #inputFeeds = new Map<string, Record<string, string>>();
+  // Freshness window for volatile (forecast) coverage; 0 ⇒ re-fetch every pull.
+  readonly #volatileTtlMs: number;
 
   constructor(options: HarvesterOptions) {
     this.#store = options.store;
+    this.#volatileTtlMs = options.volatileTtlMs ?? 0;
     this.#registry = new AdaptorRegistry({
       retry: options.retry ?? DEFAULT_RETRY,
     });
@@ -161,10 +171,16 @@ export class Harvester {
   async fetchRange(connectorId: string, from: Date, to: Date): Promise<void> {
     if (!this.#registry.has(connectorId)) return;
     const covered = await this.#store.coveredRanges(connectorId);
+    // Expire stale volatile (forecast) coverage so it re-fetches; the stable
+    // head stays covered. See #freshCoverage.
+    const boundary = this.#registry.stableBefore(connectorId, new Date());
+    const effective = boundary
+      ? this.#freshCoverage(covered, boundary.toISOString())
+      : covered;
     const gaps = subtractIntervals(
       from.toISOString(),
       to.toISOString(),
-      covered,
+      effective,
     );
     for (const gap of gaps) {
       const key = `${connectorId}|${gap.from}|${gap.to}`;
@@ -183,18 +199,10 @@ export class Harvester {
                 to: new Date(gap.to),
               });
         await this.#store.writeReadings(connectorId, readings);
-        // Commit only the FINAL portion of the gap. An adaptor whose recent/
-        // future data revises (e.g. a weather forecast) reports a `stableBefore`
-        // boundary; the volatile tail past it stays uncovered so the next pull
-        // re-fetches and overwrites it, and freezes each day as it ages past the
-        // boundary. No boundary ⇒ the whole gap is final (commit it all).
-        const boundary = this.#registry.stableBefore(connectorId, new Date());
-        const commitTo =
-          boundary && boundary.toISOString() < gap.to
-            ? boundary.toISOString()
-            : gap.to;
-        if (commitTo > gap.from)
-          await this.#store.commitCoverage(connectorId, gap.from, commitTo);
+        // Commit the whole gap. Volatile (forecast) coverage past the adaptor's
+        // `stableBefore` boundary is reopened later by #freshCoverage once its
+        // `fetchedAt` ages past the TTL; the stable head stays covered forever.
+        await this.#store.commitCoverage(connectorId, gap.from, gap.to);
       } catch {
         // The registry already emitted onError for the failed attempts. The gap
         // stays uncovered, so a later request retries it (self-heal).
@@ -203,6 +211,33 @@ export class Harvester {
         this.#markPending(connectorId, -1);
       }
     }
+  }
+
+  // Drop volatile coverage (the portion at/after `boundary`) whose `fetchedAt`
+  // is older than the TTL, so it re-fetches; the stable head (< boundary) is
+  // always kept. With no TTL (0) the volatile tail is always dropped — forecast
+  // re-fetched on every pull. Coverage entirely before the boundary is untouched.
+  #freshCoverage(covered: Interval[], boundary: string): Interval[] {
+    const ttl = this.#volatileTtlMs;
+    const now = Date.now();
+    const out: Interval[] = [];
+    for (const c of covered) {
+      if (c.to <= boundary) {
+        out.push(c); // entirely stable
+        continue;
+      }
+      const fresh =
+        ttl > 0 &&
+        c.fetchedAt !== undefined &&
+        now - new Date(c.fetchedAt).getTime() <= ttl;
+      if (fresh) {
+        out.push(c); // volatile but still within the TTL
+        continue;
+      }
+      // Stale (or untracked): keep the stable head, reopen the volatile tail.
+      if (c.from < boundary) out.push({ from: c.from, to: boundary });
+    }
+    return out;
   }
 
   // Resolve the connector's input histories over the gap, split it into
