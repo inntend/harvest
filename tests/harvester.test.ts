@@ -9,7 +9,7 @@ import {
   segmentByParameters,
   subtractIntervals,
 } from '../src/harvester';
-import type { Adaptor, Reading } from '../src/types';
+import type { Adaptor, Range, Reading } from '../src/types';
 
 const config = z.object({ host: z.string() });
 
@@ -47,7 +47,9 @@ function makeStore(
   return {
     list: vi.fn(async () => specs),
     coveredRanges: vi.fn(async (id: string) => covered[id] ?? []),
-    commitCoverage: vi.fn(async () => {}),
+    commitCoverage: vi.fn(
+      async (_id: string, _from: string, _to: string) => {},
+    ),
     writeReadings: vi.fn(async (_id: string, _readings: Reading[]) => {}),
     reset: vi.fn(async () => {}),
     parameterHistory: vi.fn(async (id: string) => history[id] ?? []),
@@ -631,5 +633,146 @@ describe('Harvester.captureInputs', () => {
 
     expect(f.read).not.toHaveBeenCalled();
     expect(store.writeReadings).not.toHaveBeenCalled();
+  });
+
+  it('skips a connector whose inputFeeds map to a different feed id', async () => {
+    // connector binds 'other-feed', not 'device-gps' → refs is empty → continue
+    const store = makeStore([
+      gpsSpec({
+        inputFeeds: { latitude: 'other-feed', longitude: 'other-feed' },
+      }),
+    ]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).not.toHaveBeenCalled();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+  });
+
+  it('treats absent parameterHistory as no prior values and writes the feed', async () => {
+    // Store without parameterHistory → covers the ?. null path and ?? [] fallback.
+    const store = {
+      list: vi.fn(async () => [gpsSpec()]),
+      coveredRanges: vi.fn(async () => []),
+      commitCoverage: vi.fn(async () => {}),
+      writeReadings: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}),
+    } as unknown as ReturnType<typeof makeStore>;
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = feed();
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+  });
+
+  it('skips write when feed values contain none of the expected refs', async () => {
+    // Feed returns 'elevation' but connector expects 'latitude'/'longitude' → fields is empty
+    const store = makeStore([gpsSpec()]);
+    const h = harvester(store).provide(gpsAdaptor);
+    await h.load();
+    const f = {
+      id: 'device-gps',
+      read: vi.fn(async () => ({ elevation: 100 })),
+    };
+    await h.captureInputs([f], AT, THROUGH);
+
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(store.writeReadings).not.toHaveBeenCalled();
+    expect(store.reset).not.toHaveBeenCalled();
+  });
+});
+
+describe('Harvester.fetchRange stable-cutoff coverage', () => {
+  const MID = new Date('2024-01-01T12:00:00Z'); // between FROM and TO
+
+  const stable = (
+    boundary: Date,
+    fetchFn?: Adaptor<typeof config.shape>['fetch'],
+  ): Adaptor<typeof config.shape> => ({
+    ...adaptor(fetchFn),
+    stableBefore: () => boundary,
+  });
+
+  it('commits the whole gap when the adaptor has no stableBefore', async () => {
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.commitCoverage).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      TO.toISOString(),
+    );
+  });
+
+  it('commits coverage only up to the stable boundary', async () => {
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(stable(MID));
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).toHaveBeenCalledOnce(); // all readings still written
+    expect(store.commitCoverage).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      MID.toISOString(),
+    );
+  });
+
+  it('writes but does not commit when the whole gap is volatile', async () => {
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(stable(FROM)); // boundary at gap start
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+    expect(store.commitCoverage).not.toHaveBeenCalled();
+  });
+
+  it('re-fetches only the volatile tail on the next pull', async () => {
+    const covered: Record<string, Interval[]> = {};
+    const store = makeStore([spec()], covered);
+    store.commitCoverage = vi.fn(
+      async (id: string, from: string, to: string) => {
+        covered[id] = [{ from, to }];
+      },
+    );
+    const fetchFn = vi.fn(async (_cfg: unknown, range: Range) => [
+      { timestamp: range.to.toISOString(), values: { value: 1 } },
+    ]);
+    const h = harvester(store).provide(stable(MID, fetchFn));
+    await h.load();
+    await h.fetchRange('c1', FROM, TO); // covers [FROM, MID); tail stays open
+    await h.fetchRange('c1', FROM, TO);
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn.mock.calls[0][1]).toEqual({ from: FROM, to: TO });
+    expect(fetchFn.mock.calls[1][1]).toEqual({ from: MID, to: TO });
+  });
+
+  it('freezes the tail once it ages past the (advancing) boundary', async () => {
+    const covered: Record<string, Interval[]> = {};
+    const store = makeStore([spec()], covered);
+    store.commitCoverage = vi.fn(
+      async (id: string, from: string, to: string) => {
+        covered[id] = [...(covered[id] ?? []), { from, to }];
+      },
+    );
+    let boundary = MID;
+    const h = harvester(store).provide({
+      ...adaptor(),
+      stableBefore: () => boundary,
+    });
+    await h.load();
+    await h.fetchRange('c1', FROM, TO); // commits [FROM, MID)
+    boundary = TO; // a day later the tail is final
+    await h.fetchRange('c1', FROM, TO); // commits [MID, TO)
+
+    expect(store.commitCoverage.mock.calls.map((c) => [c[1], c[2]])).toEqual([
+      [FROM.toISOString(), MID.toISOString()],
+      [MID.toISOString(), TO.toISOString()],
+    ]);
   });
 });

@@ -174,4 +174,14 @@ describe('openMeteoAdaptor', () => {
       expect(readings).toHaveLength(6);
     });
   });
+
+  describe('stableBefore', () => {
+    it('returns midnight UTC of the day after the archive cutoff', () => {
+      // cutoff = 2024-06-15 − 5d = 2024-06-10; boundary = day after = 06-11.
+      const now = new Date('2024-06-15T08:00:00Z');
+      expect(openMeteoAdaptor.stableBefore?.(now)).toEqual(
+        new Date('2024-06-11T00:00:00Z'),
+      );
+    });
+  });
 });

@@ -119,6 +119,14 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
   async fetch(cfg, range) {
     return fetchDaily(cfg.latitude, cfg.longitude, cfg.timezone, range);
   },
+
+  // Dates after the archive cutoff are forecast-served and keep revising; the
+  // cutoff day and earlier are final (ERA5 archive). The stable boundary is
+  // midnight UTC of the day after the cutoff, so the Harvester re-fetches the
+  // forecast tail each pull and freezes days as they age past it.
+  stableBefore(now) {
+    return new Date(archiveCutoff(now).getTime() + 86_400_000);
+  },
 };
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────
@@ -132,14 +140,7 @@ async function fetchDaily(
   // Split at the archive lag boundary to avoid nulls from the forecast endpoint
   // for dates older than ~ARCHIVE_LAG_DAYS. String comparison is safe here
   // since both sides produce YYYY-MM-DD.
-  const today = new Date();
-  const cutoff = new Date(
-    Date.UTC(
-      today.getUTCFullYear(),
-      today.getUTCMonth(),
-      today.getUTCDate() - ARCHIVE_LAG_DAYS,
-    ),
-  );
+  const cutoff = archiveCutoff(new Date());
   const cutoffStr = isoDate(cutoff);
   const dayAfterCutoffStr = isoDate(new Date(cutoff.getTime() + 86_400_000));
 
@@ -224,6 +225,20 @@ async function fetchEndpoint(
     });
   }
   return readings;
+}
+
+// UTC midnight of (today − ARCHIVE_LAG_DAYS): the last day the ERA5 archive
+// reliably covers. Dates ≤ this use the archive endpoint; newer dates use the
+// forecast endpoint (and keep revising until they age past it). Shared by
+// fetchDaily and stableBefore so the split and the freeze boundary can't drift.
+function archiveCutoff(now: Date): Date {
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - ARCHIVE_LAG_DAYS,
+    ),
+  );
 }
 
 // UTC YYYY-MM-DD for the open-meteo date params. Read in UTC so the range
