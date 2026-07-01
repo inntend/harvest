@@ -36,7 +36,7 @@ export type Interval = {
   from: string;
   to: string;
   fetchedAt?: string;
-  version?: string;
+  version?: string | null;
 };
 
 // One sample of a time-varying input parameter. `reference` is the adaptor
