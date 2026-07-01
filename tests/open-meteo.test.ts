@@ -73,39 +73,32 @@ describe('openMeteoAdaptor', () => {
       expect(new Date(readings[2].timestamp).getUTCDate()).toBe(3);
     });
 
-    it('requests hourly pressure and folds it into per-day min/max/mean', async () => {
+    it('requests and returns the daily pressure aggregates', async () => {
       vi.stubGlobal(
         'fetch',
         mockFetch({
-          daily: { time: ['2024-01-01'], temperature_2m_max: [5.2] },
-          hourly: {
-            time: ['2024-01-01T00:00', '2024-01-01T01:00', '2024-01-01T02:00'],
-            pressure_msl: [1000, 1010, 1006],
-            surface_pressure: [990, 995, 998],
+          daily: {
+            time: ['2024-01-01'],
+            pressure_msl_min: [1000],
+            pressure_msl_max: [1010],
+            pressure_msl_mean: [1005],
+            surface_pressure_min: [990],
+            surface_pressure_max: [998],
+            surface_pressure_mean: [994],
           },
         }),
       );
       const readings = await openMeteoAdaptor.fetch(cfg, RANGE);
-      expect(calledUrl()).toContain('hourly=pressure_msl');
+      expect(calledUrl()).toContain('pressure_msl_mean');
+      expect(calledUrl()).toContain('surface_pressure_mean');
       expect(readings[0].values).toMatchObject({
         pressure_msl_min: 1000,
         pressure_msl_max: 1010,
-        pressure_msl_mean: (1000 + 1010 + 1006) / 3,
+        pressure_msl_mean: 1005,
         surface_pressure_min: 990,
         surface_pressure_max: 998,
-        surface_pressure_mean: (990 + 995 + 998) / 3,
+        surface_pressure_mean: 994,
       });
-    });
-
-    it('omits pressure for a day with no hourly samples', async () => {
-      vi.stubGlobal(
-        'fetch',
-        mockFetch({
-          daily: { time: ['2024-01-01'], temperature_2m_max: [5.2] },
-        }),
-      );
-      const readings = await openMeteoAdaptor.fetch(cfg, RANGE);
-      expect(readings[0].values).not.toHaveProperty('pressure_msl_mean');
     });
 
     it('skips non-numeric / missing values', async () => {
