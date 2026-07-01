@@ -25,6 +25,14 @@ export type Adaptor<C extends Shape> = {
   // re-fetched on each pull. The Harvester commits coverage only up to this
   // boundary, leaving the volatile tail uncovered. Absent ⇒ all data is final.
   stableBefore?(now: Date): Date;
+  // Optional salt for this adaptor's coverage schema version. The Harvester
+  // stamps each committed coverage interval with a version derived from the read
+  // field set; when that set changes, ranges fetched under the old version are
+  // re-fetched, so a newly-added read field backfills into already-covered rows
+  // (writeReadings merges per timestamp). Bump this to force the same re-fetch
+  // when the *values* change without the field set changing (e.g. an aggregation
+  // tweak). Absent ⇒ the version derives from the read field keys alone.
+  readVersion?: string;
 };
 
 export type AnyAdaptor = Adaptor<any>;

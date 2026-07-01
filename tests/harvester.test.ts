@@ -39,6 +39,19 @@ const spec = (over: Partial<ConnectorSpec> = {}): ConnectorSpec => ({
 const FROM = new Date('2024-01-01T00:00:00Z');
 const TO = new Date('2024-01-02T00:00:00Z');
 
+// Mirror of registry.ts's read-schema version hash so seeded coverage carries the
+// version the harvester computes for the test adaptor (read keys ['value'], no
+// salt). If the hashing changes, these tests fail loudly and this is updated.
+function readVersion(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+const VERSION = readVersion('value|');
+
 function makeStore(
   specs: ConnectorSpec[],
   covered: Record<string, Interval[]> = {},
@@ -48,7 +61,7 @@ function makeStore(
     list: vi.fn(async () => specs),
     coveredRanges: vi.fn(async (id: string) => covered[id] ?? []),
     commitCoverage: vi.fn(
-      async (_id: string, _from: string, _to: string) => {},
+      async (_id: string, _from: string, _to: string, _version?: string) => {},
     ),
     writeReadings: vi.fn(async (_id: string, _readings: Reading[]) => {}),
     reset: vi.fn(async () => {}),
@@ -83,7 +96,9 @@ describe('Harvester.fetchRange', () => {
 
   it('skips fetching when the range is fully covered', async () => {
     const store = makeStore([spec()], {
-      c1: [{ from: FROM.toISOString(), to: TO.toISOString() }],
+      c1: [
+        { from: FROM.toISOString(), to: TO.toISOString(), version: VERSION },
+      ],
     });
     const h = harvester(store).provide(adaptor());
     await h.load();
@@ -184,7 +199,9 @@ describe('Harvester.fetchRange', () => {
 
   it('emits no pending events when the range is fully covered', async () => {
     const store = makeStore([spec()], {
-      c1: [{ from: FROM.toISOString(), to: TO.toISOString() }],
+      c1: [
+        { from: FROM.toISOString(), to: TO.toISOString(), version: VERSION },
+      ],
     });
     const events: [string, boolean][] = [];
     const h = harvester(store)
@@ -708,7 +725,14 @@ describe('Harvester.fetchRange forecast coverage (volatile TTL)', () => {
     ]);
 
   const coveredFull = (fetchedAt: string): Record<string, Interval[]> => ({
-    c1: [{ from: FROM.toISOString(), to: TO.toISOString(), fetchedAt }],
+    c1: [
+      {
+        from: FROM.toISOString(),
+        to: TO.toISOString(),
+        fetchedAt,
+        version: VERSION,
+      },
+    ],
   });
 
   it('commits the whole gap (stable head + volatile tail)', async () => {
@@ -720,6 +744,7 @@ describe('Harvester.fetchRange forecast coverage (volatile TTL)', () => {
       'c1',
       FROM.toISOString(),
       TO.toISOString(),
+      VERSION,
     );
   });
 
@@ -762,5 +787,79 @@ describe('Harvester.fetchRange forecast coverage (volatile TTL)', () => {
     await h.load();
     await h.fetchRange('c1', FROM, TO);
     expect(store.writeReadings).not.toHaveBeenCalled();
+  });
+});
+
+describe('Harvester.fetchRange read-schema version (backfill)', () => {
+  it('stamps committed coverage with the adaptor read-schema version', async () => {
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.commitCoverage).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      TO.toISOString(),
+      VERSION,
+    );
+  });
+
+  it('re-fetches coverage stamped under a different version', async () => {
+    // A field was added since this range was fetched → its version no longer
+    // matches, so the range re-fetches to backfill the new field.
+    const store = makeStore([spec()], {
+      c1: [{ from: FROM.toISOString(), to: TO.toISOString(), version: 'old' }],
+    });
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+    expect(store.commitCoverage).toHaveBeenCalledWith(
+      'c1',
+      FROM.toISOString(),
+      TO.toISOString(),
+      VERSION,
+    );
+  });
+
+  it('re-fetches legacy coverage that has no version', async () => {
+    const store = makeStore([spec()], {
+      c1: [{ from: FROM.toISOString(), to: TO.toISOString() }],
+    });
+    const h = harvester(store).provide(adaptor());
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(store.writeReadings).toHaveBeenCalledOnce();
+  });
+
+  it('re-fetches only the portion not covered under the current version', async () => {
+    // The first half was already fetched under the current version; only the
+    // uncovered second half re-fetches.
+    const MID_S = new Date('2024-01-01T12:00:00Z').toISOString();
+    const store = makeStore([spec()], {
+      c1: [{ from: FROM.toISOString(), to: MID_S, version: VERSION }],
+    });
+    const fetchFn = vi.fn(async (_cfg: unknown, range: Range) => [
+      { timestamp: range.to.toISOString(), values: { value: 1 } },
+    ]);
+    const h = harvester(store).provide(adaptor(fetchFn));
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(fetchFn.mock.calls[0][1]).toEqual({ from: new Date(MID_S), to: TO });
+  });
+
+  it('changes the version when the adaptor bumps its readVersion salt', async () => {
+    const salted: Adaptor<typeof config.shape> = {
+      ...adaptor(),
+      readVersion: 'v2',
+    };
+    const store = makeStore([spec()]);
+    const h = harvester(store).provide(salted);
+    await h.load();
+    await h.fetchRange('c1', FROM, TO);
+    const stampedVersion = store.commitCoverage.mock.calls[0][3];
+    expect(stampedVersion).not.toBe(VERSION);
+    expect(stampedVersion).toBe(readVersion('value|v2'));
   });
 });

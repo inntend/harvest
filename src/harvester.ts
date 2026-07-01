@@ -30,7 +30,14 @@ export type ConnectorSpec = {
 // and lexicographically sortable (all UTC `…Z`). `fetchedAt` (when the host can
 // supply it) is when this coverage was last written — used to expire volatile
 // (forecast) coverage past an adaptor's `stableBefore` boundary after the TTL.
-export type Interval = { from: string; to: string; fetchedAt?: string };
+// `version` is the read-schema signature this range was fetched under; coverage
+// stamped under a different version is re-fetched so new read fields backfill.
+export type Interval = {
+  from: string;
+  to: string;
+  fetchedAt?: string;
+  version?: string;
+};
 
 // One sample of a time-varying input parameter. `reference` is the adaptor
 // config key; `timestamp` is ISO-8601. Used to segment the fetch range.
@@ -55,7 +62,15 @@ export type Segment = {
 export interface ConnectorStore {
   list(): Promise<ConnectorSpec[]>;
   coveredRanges(connectorId: string): Promise<Interval[]>;
-  commitCoverage(connectorId: string, from: string, to: string): Promise<void>;
+  // Record [from, to) as fetched. `version` is the adaptor's current read-schema
+  // signature (see Harvester.readVersion via the registry); persist it so a later
+  // read-field addition (which changes the version) re-opens this range.
+  commitCoverage(
+    connectorId: string,
+    from: string,
+    to: string,
+    version?: string,
+  ): Promise<void>;
   // Merge the fetched native-unit read fields into the connector's wide rows
   // (one row per timestamp). A merge — never a whole-row replace — so user
   // recorded input fields on the same row survive a re-fetch.
@@ -171,12 +186,19 @@ export class Harvester {
   async fetchRange(connectorId: string, from: Date, to: Date): Promise<void> {
     if (!this.#registry.has(connectorId)) return;
     const covered = await this.#store.coveredRanges(connectorId);
+    // Drop coverage fetched under a different read-schema version so it re-fetches
+    // and backfills any newly-added read fields (writeReadings merges per
+    // timestamp, so existing fields are preserved). Null version ⇒ no filtering.
+    const version = this.#registry.readVersion(connectorId);
+    const current = version
+      ? covered.filter((c) => c.version === version)
+      : covered;
     // Expire stale volatile (forecast) coverage so it re-fetches; the stable
     // head stays covered. See #freshCoverage.
     const boundary = this.#registry.stableBefore(connectorId, new Date());
     const effective = boundary
-      ? this.#freshCoverage(covered, boundary.toISOString())
-      : covered;
+      ? this.#freshCoverage(current, boundary.toISOString())
+      : current;
     const gaps = subtractIntervals(
       from.toISOString(),
       to.toISOString(),
@@ -199,10 +221,16 @@ export class Harvester {
                 to: new Date(gap.to),
               });
         await this.#store.writeReadings(connectorId, readings);
-        // Commit the whole gap. Volatile (forecast) coverage past the adaptor's
-        // `stableBefore` boundary is reopened later by #freshCoverage once its
-        // `fetchedAt` ages past the TTL; the stable head stays covered forever.
-        await this.#store.commitCoverage(connectorId, gap.from, gap.to);
+        // Commit the whole gap, stamped with the current read-schema version.
+        // Volatile (forecast) coverage past the adaptor's `stableBefore` boundary
+        // is reopened later by #freshCoverage once its `fetchedAt` ages past the
+        // TTL; the stable head stays covered until its version changes.
+        await this.#store.commitCoverage(
+          connectorId,
+          gap.from,
+          gap.to,
+          version ?? undefined,
+        );
       } catch {
         // The registry already emitted onError for the failed attempts. The gap
         // stays uncovered, so a later request retries it (self-heal).

@@ -31,6 +31,11 @@ const DAILY_VARS = [
   'daylight_duration',
 ] as const;
 
+// Hourly variables fetched alongside the daily ones (open-meteo has no daily
+// pressure aggregate) and folded into per-day min/max/mean. Requested in the same
+// call as `daily`, so this adds no extra HTTP round-trip.
+const HOURLY_VARS = ['pressure_msl', 'surface_pressure'] as const;
+
 const config = z.object({
   latitude: z.number().min(-90).max(90).describe('Location latitude'),
   longitude: z.number().min(-180).max(180).describe('Location longitude'),
@@ -107,6 +112,45 @@ export const openMeteoAdaptor: Adaptor<typeof config.shape> = {
       weather_code: { unit: '', label: 'Weather Code', min: 0, max: 99 },
       sunshine_duration: { unit: 's', label: 'Sunshine Duration', min: 0 },
       daylight_duration: { unit: 's', label: 'Daylight Duration', min: 0 },
+      // Pressure has no daily aggregate in open-meteo — these are per-day min/max/
+      // mean folded from the hourly series (see aggregateHourly). Bounds are wide
+      // so validation never drops a reading (surface pressure falls with altitude).
+      pressure_msl_min: {
+        unit: 'hPa',
+        label: 'Min Sea-level Pressure',
+        min: 800,
+        max: 1100,
+      },
+      pressure_msl_max: {
+        unit: 'hPa',
+        label: 'Max Sea-level Pressure',
+        min: 800,
+        max: 1100,
+      },
+      pressure_msl_mean: {
+        unit: 'hPa',
+        label: 'Sea-level Pressure',
+        min: 800,
+        max: 1100,
+      },
+      surface_pressure_min: {
+        unit: 'hPa',
+        label: 'Min Surface Pressure',
+        min: 250,
+        max: 1100,
+      },
+      surface_pressure_max: {
+        unit: 'hPa',
+        label: 'Max Surface Pressure',
+        min: 250,
+        max: 1100,
+      },
+      surface_pressure_mean: {
+        unit: 'hPa',
+        label: 'Surface Pressure',
+        min: 250,
+        max: 1100,
+      },
     },
     write: {},
     // Coordinates may be fixed (bootstrap) or driven by a GPS history series.
@@ -198,6 +242,7 @@ async function fetchEndpoint(
     start_date: startDate,
     end_date: endDate,
     daily: DAILY_VARS.join(','),
+    hourly: HOURLY_VARS.join(','),
   });
 
   const res = await fetch(`${url}?${params}`);
@@ -206,9 +251,12 @@ async function fetchEndpoint(
 
   const json = (await res.json()) as {
     daily?: Record<string, Array<number | string | null>>;
+    hourly?: Record<string, Array<number | string | null>>;
   };
   const daily = json.daily;
   const times = Array.isArray(daily?.time) ? (daily.time as string[]) : [];
+  // date (YYYY-MM-DD) -> pressure aggregates for that day.
+  const pressureByDay = aggregateHourly(json.hourly);
 
   const readings: Reading[] = [];
   for (let i = 0; i < times.length; i++) {
@@ -217,6 +265,9 @@ async function fetchEndpoint(
       const v = daily?.[key]?.[i];
       if (typeof v === 'number') values[key] = v;
     }
+    // Daily pressure has no native aggregate — merge the folded hourly min/max/
+    // mean for this calendar day (keyed by the same YYYY-MM-DD as `daily.time`).
+    Object.assign(values, pressureByDay[times[i]] ?? {});
     // Stamp at noon UTC of the calendar day so the timestamp is deterministic
     // across machines (cross-device dedupe) and day-bucketing stays stable.
     readings.push({
@@ -225,6 +276,54 @@ async function fetchEndpoint(
     });
   }
   return readings;
+}
+
+// Fold open-meteo's hourly pressure series into per-day min/max/mean, keyed by
+// the YYYY-MM-DD date prefix of each hourly timestamp. The hourly times share the
+// request's `timezone` with the daily variables, so the date prefixes line up
+// with `daily.time` (no cross-day drift). Days with no numeric samples are
+// omitted, so a reading simply lacks pressure rather than carrying a bad value.
+function aggregateHourly(
+  hourly: Record<string, Array<number | string | null>> | undefined,
+): Record<string, Record<string, number>> {
+  const times = Array.isArray(hourly?.time) ? (hourly.time as string[]) : [];
+  if (times.length === 0) return {};
+
+  type Acc = { min: number; max: number; sum: number; count: number };
+  const byDay: Record<string, Record<string, Acc>> = {};
+  for (const key of HOURLY_VARS) {
+    const series = hourly?.[key];
+    if (!Array.isArray(series)) continue;
+    for (let i = 0; i < times.length; i++) {
+      const v = series[i];
+      if (typeof v !== 'number') continue;
+      const day = times[i].slice(0, 10);
+      const dayAcc = byDay[day] ?? (byDay[day] = {});
+      const acc = dayAcc[key];
+      if (acc) {
+        if (v < acc.min) acc.min = v;
+        if (v > acc.max) acc.max = v;
+        acc.sum += v;
+        acc.count += 1;
+      } else {
+        dayAcc[key] = { min: v, max: v, sum: v, count: 1 };
+      }
+    }
+  }
+
+  const out: Record<string, Record<string, number>> = {};
+  for (const day in byDay) {
+    const values: Record<string, number> = {};
+    for (const key of HOURLY_VARS) {
+      const acc = byDay[day][key];
+      if (!acc) continue;
+      values[`${key}_min`] = acc.min;
+      values[`${key}_max`] = acc.max;
+      values[`${key}_mean`] = acc.sum / acc.count;
+    }
+    out[day] = values;
+  }
+  return out;
 }
 
 // UTC midnight of (today − ARCHIVE_LAG_DAYS): the last day the ERA5 archive

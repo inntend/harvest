@@ -48,6 +48,18 @@ type Entry = {
 const DEFAULT_RETRY: Required<RetryOptions> = { retries: 0, baseDelayMs: 500 };
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Stable, short, non-cryptographic hash (FNV-1a → base36) for coverage schema
+// versions. Deterministic across devices, so the same read schema yields the
+// same version everywhere and synced coverage compares consistently.
+function hashString(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 // Holds the adaptor catalog (built-in + custom) and the configured connectors,
 // and executes range fetches / writes. No scheduling — invoked on demand.
 export class AdaptorRegistry {
@@ -115,6 +127,18 @@ export class AdaptorRegistry {
     return (
       this.#connectors.get(connectorId)?.adaptor.stableBefore?.(now) ?? null
     );
+  }
+
+  // A short signature of a connector's read schema, changing whenever the set of
+  // read fields (or the adaptor's `readVersion` salt) changes. The Harvester
+  // stamps coverage with this and re-fetches intervals stamped under a different
+  // version, so adding a read field backfills into already-covered ranges. Null
+  // for an unknown connector.
+  readVersion(connectorId: string): string | null {
+    const entry = this.#connectors.get(connectorId);
+    if (!entry) return null;
+    const keys = Object.keys(entry.adaptor.def.read).sort().join(',');
+    return hashString(`${keys}|${entry.adaptor.readVersion ?? ''}`);
   }
 
   // All registered adaptor types (built-in + host-supplied), so the UI can list
